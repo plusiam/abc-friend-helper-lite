@@ -1,0 +1,28 @@
+{
+  "short_name": "ABC도우미",
+  "name": "ABC 친구 도우미",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#3B82F6",
+  "background_color": "#F8FAFC",
+  "description": "친구의 마음을 이해하고 도와주는 초등학생 또래 상담 도구",
+  "categories": ["education", "kids"],
+  "orientation": "portrait"
+}
