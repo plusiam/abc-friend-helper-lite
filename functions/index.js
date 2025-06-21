@@ -359,11 +359,131 @@ ${conversationContext}
   }
 });
 
-// 나머지 함수들은 동일...
+// 상담 세션 완료 처리
+exports.completeSession = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', '인증이 필요합니다');
+  }
+
+  const { sessionId, sessionData } = data;
+
+  try {
+    // 세션 데이터 저장
+    await admin.firestore().collection('completedSessions').doc(sessionId).set({
+      ...sessionData,
+      userId: context.auth.uid,
+      completedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // 통계 업데이트
+    await updateUserStats(context.auth.uid, sessionData);
+
+    // 배지 확인 및 부여
+    const newBadges = await checkAndAwardBadges(context.auth.uid);
+
+    // 상담 품질 분석
+    const analysis = await analyzeSessionQuality(sessionData);
+
+    return {
+      success: true,
+      analysis,
+      newBadges,
+      totalSessions: await getTotalSessions(context.auth.uid)
+    };
+
+  } catch (error) {
+    console.error('세션 완료 처리 오류:', error);
+    throw new functions.https.HttpsError('internal', '세션 완료 처리 중 오류가 발생했습니다');
+  }
+});
+
+// 일일 상담 팁 생성 (Scheduled Function)
+exports.generateDailyTips = functions.pubsub.schedule('every day 09:00').onRun(async (context) => {
+  try {
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-pro",
+      safetySettings,
+    });
+
+    const categories = ['공감', '경청', '격려', '문제해결'];
+    const category = categories[Math.floor(Math.random() * categories.length)];
+
+    const prompt = `
+초등학생 또래 상담자를 위한 오늘의 ${category} 팁을 만들어주세요.
+
+요구사항:
+- 초등학생이 이해하기 쉬운 언어로
+- 실제로 활용할 수 있는 구체적인 팁
+- 50자 이내로 간단명료하게
+- 긍정적이고 격려하는 톤으로
+
+팁을 작성해주세요:`;
+
+    const result = await model.generateContent(prompt);
+    const tip = result.response.text().trim();
+
+    // Firestore에 저장
+    await admin.firestore().collection('dailyTips').add({
+      tip,
+      category,
+      date: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log('일일 팁 생성 완료:', tip);
+
+  } catch (error) {
+    console.error('일일 팁 생성 오류:', error);
+  }
+});
+
+// 격려 메시지 생성
+exports.generateEncouragement = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', '인증이 필요합니다');
+  }
+
+  const { situation, emotion, previousMessages = [] } = data;
+
+  try {
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-pro",
+      safetySettings,
+    });
+
+    const prompt = `
+친구를 위한 따뜻한 격려 메시지를 만들어주세요.
+
+상황: ${situation}
+친구의 감정: ${emotion}
+이미 사용한 메시지: ${previousMessages.join(', ')}
+
+요구사항:
+- 초등학생이 친구에게 전할 수 있는 자연스러운 메시지
+- 진심이 담긴 따뜻한 표현
+- 희망적이고 긍정적인 내용
+- 30자 내외로 간단하게
+- 이전 메시지와 중복되지 않게
+
+격려 메시지:`;
+
+    const result = await model.generateContent(prompt);
+    const message = result.response.text().trim();
+
+    return {
+      message,
+      category: categorizeEncouragement(message)
+    };
+
+  } catch (error) {
+    console.error('격려 메시지 생성 오류:', error);
+    throw new functions.https.HttpsError('internal', '메시지 생성 중 오류가 발생했습니다');
+  }
+});
 
 // 유틸리티 함수들
 function parseSolutions(response) {
   try {
+    // 응답을 섹션별로 분리
     const sections = response.split(/\d\.\s+/);
     
     const positiveThoughts = [];
@@ -399,11 +519,155 @@ function parseSolutions(response) {
 
 function getPersonalityPrompt(personality) {
   const prompts = {
-    shy: `당신은 수줍음이 많은 10살 초등학생입니다.`,
-    talkative: `당신은 활발하고 말이 많은 10살 초등학생입니다.`,
-    emotional: `당신은 감정이 풍부한 10살 초등학생입니다.`
+    shy: `당신은 수줍음이 많은 10살 초등학생입니다. 
+      - 말을 조금씩, 짧게 합니다
+      - 감정 표현을 어려워합니다
+      - "음...", "그런가..." 같은 표현을 자주 사용합니다
+      - 상담자가 친절하면 조금씩 마음을 엽니다`,
+    
+    talkative: `당신은 활발하고 말이 많은 10살 초등학생입니다.
+      - 감정을 솔직하게 표현합니다
+      - 이야기를 자세히 설명합니다
+      - "진짜로!", "완전!" 같은 표현을 자주 사용합니다
+      - 때로는 주제에서 벗어난 이야기도 합니다`,
+    
+    emotional: `당신은 감정이 풍부한 10살 초등학생입니다.
+      - 울거나 화내는 것을 자주 표현합니다
+      - "너무 속상해", "정말 화나" 같은 감정 표현을 많이 사용합니다
+      - 공감을 받으면 진정됩니다
+      - 감정이 격해지면 말이 빨라집니다`
   };
+
   return prompts[personality] || prompts.talkative;
+}
+
+async function updateUserSkills(userId, skill, points) {
+  const userRef = admin.firestore().collection('users').doc(userId);
+  
+  await userRef.update({
+    [`skills.${skill}`]: admin.firestore.FieldValue.increment(points),
+    lastActivityAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+async function evaluateCounselingQuality(message, problem) {
+  try {
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-pro",
+      safetySettings,
+    });
+
+    const prompt = `
+다음 상담 메시지의 품질을 평가해주세요.
+
+문제 상황: ${problem}
+상담자 메시지: ${message}
+
+평가 기준:
+1. 공감 표현 (40점)
+2. 경청 자세 (30점)
+3. 적절한 질문 (30점)
+
+JSON 형식으로 응답:
+{
+  "score": 0-100,
+  "strengths": ["강점1", "강점2"],
+  "improvements": ["개선점1", "개선점2"]
+}`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      return JSON.parse(jsonMatch[0]);
+    } catch {
+      return {
+        score: 75,
+        strengths: ["친구의 마음을 이해하려고 노력했어요"],
+        improvements: ["더 구체적인 질문을 해보세요"]
+      };
+    }
+  } catch (error) {
+    console.error('품질 평가 오류:', error);
+    return { score: 70, strengths: [], improvements: [] };
+  }
+}
+
+async function checkAndAwardBadges(userId) {
+  const userDoc = await admin.firestore().collection('users').doc(userId).get();
+  const userData = userDoc.data() || {};
+  const newBadges = [];
+
+  const badges = {
+    firstCounseling: {
+      condition: (userData.totalSessions || 0) >= 1,
+      name: "첫 상담 완료",
+      icon: "🌱"
+    },
+    empathyMaster: {
+      condition: (userData.skills?.empathy || 0) >= 100,
+      name: "공감 마스터",
+      icon: "💝"
+    },
+    helpingHand: {
+      condition: (userData.totalSessions || 0) >= 10,
+      name: "도움의 손길",
+      icon: "🤝"
+    },
+    problemSolver: {
+      condition: (userData.skills?.problemSolving || 0) >= 100,
+      name: "문제 해결사",
+      icon: "💡"
+    }
+  };
+
+  const userRef = admin.firestore().collection('users').doc(userId);
+
+  for (const [key, badge] of Object.entries(badges)) {
+    if (badge.condition && !userData.badges?.[key]) {
+      newBadges.push(badge);
+      await userRef.update({
+        [`badges.${key}`]: true,
+        [`badgeTimestamps.${key}`]: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+  }
+
+  return newBadges;
+}
+
+async function updateUserStats(userId, sessionData) {
+  const userRef = admin.firestore().collection('users').doc(userId);
+  
+  await userRef.update({
+    totalSessions: admin.firestore.FieldValue.increment(1),
+    lastSessionAt: admin.firestore.FieldValue.serverTimestamp(),
+    [`sessionHistory.${Date.now()}`]: {
+      completedAt: new Date(),
+      situation: sessionData.situation
+    }
+  });
+}
+
+async function analyzeSessionQuality(sessionData) {
+  // 간단한 품질 분석
+  const quality = {
+    empathyScore: sessionData.empathyResponse ? 80 : 0,
+    solutionScore: sessionData.solutions?.newThinking ? 85 : 0,
+    encouragementScore: sessionData.encouragement?.personal ? 90 : 0
+  };
+
+  quality.overall = Math.round(
+    (quality.empathyScore + quality.solutionScore + quality.encouragementScore) / 3
+  );
+
+  return quality;
+}
+
+async function getTotalSessions(userId) {
+  const userDoc = await admin.firestore().collection('users').doc(userId).get();
+  return userDoc.data()?.totalSessions || 0;
 }
 
 function getRiskPriority(level) {
@@ -413,44 +677,60 @@ function getRiskPriority(level) {
 
 function getRiskMessage(level) {
   const messages = {
-    high: "이 상황은 어른의 도움이 꼭 필요해 보여요.",
-    medium: "친구가 많이 힘든 상황인 것 같아요.",
-    low: "친구의 마음을 잘 들어주고 있어요.",
-    none: "잘하고 있어요!"
+    high: "이 상황은 어른의 도움이 꼭 필요해 보여요. 믿을 수 있는 어른에게 이야기해보는 것이 좋겠어요.",
+    medium: "친구가 많이 힘든 상황인 것 같아요. 선생님이나 부모님께 도움을 요청하는 것도 좋은 방법이에요.",
+    low: "친구의 마음을 잘 들어주고 있어요. 계속 따뜻하게 대해주세요.",
+    none: "잘하고 있어요! 친구에게 큰 힘이 되고 있을 거예요."
   };
+  
   return messages[level] || messages.none;
 }
 
-function getHelpResources() {
+function getHelpResources(level) {
   return {
-    phone: { 청소년전화: "1388", 생명의전화: "109" },
-    online: { "청소년사이버상담센터": "https://www.cyber1388.kr" }
-  };
-}
-
-async function updateUserSkills(userId, skill, points) {
-  const userRef = admin.firestore().collection('users').doc(userId);
-  await userRef.update({
-    [`skills.${skill}`]: admin.firestore.FieldValue.increment(points),
-    lastActivityAt: admin.firestore.FieldValue.serverTimestamp()
-  });
-}
-
-async function evaluateCounselingQuality(message, problem) {
-  // 간단한 품질 평가 로직
-  return {
-    score: 75,
-    strengths: ["친구의 마음을 이해하려고 노력했어요"],
-    improvements: ["더 구체적인 질문을 해보세요"]
+    phone: {
+      청소년전화: "1388",
+      생명의전화: "109",
+      description: "24시간 상담 가능"
+    },
+    online: {
+      "청소년사이버상담센터": "https://www.cyber1388.kr",
+      "마음건강 정보": "https://www.youth.go.kr"
+    },
+    school: {
+      message: "학교 상담 선생님께 도움을 요청해보세요",
+      weeClass: "학교 Wee클래스 이용하기"
+    }
   };
 }
 
 function getHints(problem, personality) {
-  return [
-    "천천히 기다려주세요",
-    "친구의 감정을 인정해주세요",
-    "함께 해결책을 찾아보세요"
-  ];
+  const hints = {
+    shy: [
+      "천천히 기다려주세요",
+      "예/아니오로 대답할 수 있는 질문을 해보세요",
+      "친구가 편안함을 느낄 수 있도록 해주세요"
+    ],
+    talkative: [
+      "친구의 이야기를 정리해서 다시 말해주세요",
+      "핵심 감정에 집중해보세요",
+      "적절한 타이밍에 질문을 해보세요"
+    ],
+    emotional: [
+      "감정을 인정하고 받아주세요",
+      "진정할 시간을 주세요",
+      "함께 심호흡을 해보세요"
+    ]
+  };
+
+  return hints[personality] || hints.talkative;
+}
+
+function categorizeEncouragement(message) {
+  if (message.includes('힘') || message.includes('할 수 있')) return 'strength';
+  if (message.includes('함께') || message.includes('혼자')) return 'support';
+  if (message.includes('괜찮') || message.includes('걱정')) return 'comfort';
+  return 'general';
 }
 
 // Firebase 환경 설정
