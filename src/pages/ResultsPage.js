@@ -1,12 +1,9 @@
 // src/pages/ResultsPage.js - 상담 결과 페이지
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  CheckCircleIcon,
-  StarIcon,
-  TrophyIcon,
   HeartIcon,
   LightBulbIcon,
   HandRaisedIcon,
@@ -15,34 +12,16 @@ import {
   HomeIcon,
   ArrowPathIcon
 } from '@heroicons/react/24/outline';
-import {
-  StarIcon as StarIconSolid
-} from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
 
 const ResultsPage = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { userData, addExperience, awardBadge } = useAuth();
+  const { userData, awardBadge } = useAuth();
   const [showConfetti, setShowConfetti] = useState(false);
   const [result, setResult] = useState(null);
 
-  useEffect(() => {
-    if (location.state?.result) {
-      setResult(location.state.result);
-      setShowConfetti(true);
-      
-      // 배지 획득 체크
-      checkForNewBadges(location.state.result);
-      
-      setTimeout(() => setShowConfetti(false), 3000);
-    } else {
-      // 결과 데이터가 없으면 홈으로 리다이렉트
-      navigate('/');
-    }
-  }, [location.state, navigate]);
-
-  const checkForNewBadges = async (sessionResult) => {
+  const checkForNewBadges = useCallback(async (sessionResult) => {
     if (!userData) return;
     
     // 첫 상담 완료 배지
@@ -62,7 +41,22 @@ const ResultsPage = () => {
     } else if (totalSessions === 10) {
       await awardBadge('counselor10', '대화의 달인');
     }
-  };
+  }, [userData, awardBadge]);
+
+  useEffect(() => {
+    if (location.state?.result) {
+      setResult(location.state.result);
+      setShowConfetti(true);
+      
+      // 배지 획득 체크
+      checkForNewBadges(location.state.result);
+      
+      setTimeout(() => setShowConfetti(false), 3000);
+    } else {
+      // 결과 데이터가 없으면 홈으로 리다이렉트
+      navigate('/');
+    }
+  }, [location.state, navigate, checkForNewBadges]);
 
   const getScoreColor = (score) => {
     if (score >= 90) return 'text-green-600';
@@ -82,7 +76,7 @@ const ResultsPage = () => {
     if (overallScore >= 90) {
       return {
         title: '훌륭해요! 🎆',
-        message: '당신은 이미 후련한 상담사예요! 친구들이 당신을 정말 많이 신뢰할 거예요.'
+        message: '당신은 이미 훌륭한 상담사예요! 친구들이 당신을 정말 많이 신뢰할 거예요.'
       };
     } else if (overallScore >= 80) {
       return {
@@ -103,7 +97,7 @@ const ResultsPage = () => {
   };
 
   const handleShare = () => {
-    const shareText = `ABC 친구 도우미에서 상담 연습을 했어요! \n공감: ${result.scores.empathy}점 \n문제해결: ${result.scores.problemSolving}점 \n격려: ${result.scores.encouragement}점`;
+    const shareText = `ABC 친구 도우미에서 상담 연습을 했어요! \\n공감: ${result.scores.empathy}점 \\n문제해결: ${result.scores.problemSolving}점 \\n격려: ${result.scores.encouragement}점`;
     
     if (navigator.share) {
       navigator.share({
@@ -112,7 +106,7 @@ const ResultsPage = () => {
         url: window.location.origin
       });
     } else {
-      navigator.clipboard.writeText(shareText + ` \n${window.location.origin}`);
+      navigator.clipboard.writeText(shareText + ` \\n${window.location.origin}`);
       toast.success('결과가 클립보드에 복사되었어요!');
     }
   };
@@ -228,7 +222,7 @@ const ResultsPage = () => {
             {result.scores.encouragement}
           </div>
           <div className="text-sm text-gray-600">
-            친구에게 희망과 힙을 주는 능력
+            친구에게 희망과 힘을 주는 능력
           </div>
         </div>
       </motion.div>
@@ -309,7 +303,7 @@ const ResultsPage = () => {
           
           {overallScore >= 80 && (
             <div className="p-4 bg-blue-50 rounded-lg border-l-4 border-blue-400">
-              <h3 className="font-bold text-blue-800 mb-2">후련한 상담사네요!</h3>
+              <h3 className="font-bold text-blue-800 mb-2">훌륭한 상담사네요!</h3>
               <p className="text-blue-700 text-sm">
                 이제 더 어려운 상황의 친구들을 도와주거나, 다른 친구들에게 상담 방법을 알려주세요.
               </p>
