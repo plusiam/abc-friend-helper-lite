@@ -1,4 +1,4 @@
-// functions/index.js - Gemini AI 기반 Firebase Functions (ABC 모델 추가)
+// functions/index.js - Gemini AI 기반 Firebase Functions (ABC 모델 최적화)
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const {GoogleGenerativeAI, HarmCategory, HarmBlockThreshold} = require("@google/generative-ai");
@@ -100,7 +100,7 @@ const rateLimitMiddleware = async (req, res, next) => {
 };
 
 // =============================================================================
-// ABC 모델 전용 AI 함수들 (새로 추가)
+// ABC 모델 전용 AI 함수들 (최적화된 버전)
 // =============================================================================
 
 // ABC 단계별 분석 및 가이드 제공 (HTTP)
@@ -131,20 +131,21 @@ exports.analyzeABCStepHTTP = functions.https.onRequest(async (req, res) => {
         return;
       }
 
-      const model = getModel(0.7);
-      const result = await generateABCStepGuide(model, step, userInput, scenario, studentAge);
+      const result = await generateABCStepGuide(step, userInput, scenario, studentAge);
 
-      // 학습 데이터 저장
-      admin.firestore().collection("abcAnalysis").add({
-        userId: req.user.uid,
-        step,
-        userInput,
-        scenario: scenario.id,
-        analysis: result,
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        modelVersion: "gemini-1.5-pro",
-        source: "http",
-      }).catch((error) => console.error("ABC 데이터 저장 오류:", error));
+      // 학습 데이터 저장 (AI를 사용한 단계만)
+      if (step !== 'B') {
+        admin.firestore().collection("abcAnalysis").add({
+          userId: req.user.uid,
+          step,
+          userInput,
+          scenario: scenario.id,
+          analysis: result,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          modelVersion: step === 'B' ? 'self-reflection' : 'gemini-1.5-pro',
+          source: "http",
+        }).catch((error) => console.error("ABC 데이터 저장 오류:", error));
+      }
 
       res.json(result);
     } catch (error) {
@@ -154,116 +155,89 @@ exports.analyzeABCStepHTTP = functions.https.onRequest(async (req, res) => {
   });
 });
 
-// ABC 단계별 가이드 생성 함수
-async function generateABCStepGuide(model, step, userInput, scenario, studentAge) {
+// ABC 단계별 가이드 생성 함수 (최적화된 버전)
+async function generateABCStepGuide(step, userInput, scenario, studentAge) {
   switch (step) {
     case 'B':
-      return await generateBeliefAnalysis(model, userInput, scenario, studentAge);
+      // ✅ AI 없이 자기 성찰 가이드만 제공
+      return generateSelfReflectionGuide(userInput, scenario, studentAge);
     case 'B_prime':
-      return await generateNewBeliefGuide(model, userInput, scenario, studentAge);
+      // ✅ AI가 새로운 관점 제시
+      const model1 = getModel(0.7);
+      return await generateNewBeliefGuide(model1, userInput, scenario, studentAge);
     case 'C_prime':
-      return await generateActionPlanGuide(model, userInput, scenario, studentAge);
+      // ✅ AI가 행동 계획 도움
+      const model2 = getModel(0.7);
+      return await generateActionPlanGuide(model2, userInput, scenario, studentAge);
     default:
       throw new Error(`지원하지 않는 단계입니다: ${step}`);
   }
 }
 
-// B 단계: 부정적 생각 분석
-async function generateBeliefAnalysis(model, userInput, scenario, studentAge) {
-  const prompt = `
-당신은 초등학생 인지행동치료 교육 전문가입니다.
-${studentAge}세 학생이 작성한 부정적 생각을 분석하고 피드백을 제공해주세요.
-
-시나리오: ${scenario.situation}
-학생이 입력한 부정적 생각: ${userInput}
-
-다음 JSON 형식으로 응답해주세요:
-{
-  "analysis": {
-    "thinkingType": "흑백사고|과잉일반화|마음읽기|파국화|최소화|감정적추론",
-    "intensity": "낮음|보통|높음",
-    "realistic": true/false
-  },
-  "guidance": {
-    "explanation": "이런 생각이 생기는 이유를 아이 눈높이로 설명",
-    "questions": ["생각을 바꿔볼 질문1", "질문2", "질문3"],
-    "encouragement": "공감하는 격려 메시지"
-  },
-  "nextStepHint": "다음 단계(B')로 넘어가기 위한 힌트"
-}
-
-요구사항:
-- ${studentAge}세 아이가 이해할 수 있는 쉬운 언어 사용
-- 비판적이지 않고 이해하는 톤으로
-- 인지적 오류 유형을 아이 친화적으로 설명
-`;
-
-  try {
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-    const cleanedResponse = responseText.replace(/```json|```/g, "").trim();
-    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-    
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    } else {
-      throw new Error("JSON 형식을 찾을 수 없습니다");
-    }
-  } catch (parseError) {
-    // 기본 응답
-    return {
-      analysis: {
-        thinkingType: "파국화",
-        intensity: "보통",
-        realistic: false
-      },
-      guidance: {
-        explanation: "힘든 상황에서는 이런 생각이 들 수 있어요. 이해할 수 있어요.",
+// B 단계: AI 없이 자기 성찰 가이드 (새로 추가)
+function generateSelfReflectionGuide(userInput, scenario, studentAge) {
+  // AI 호출 없이 구조화된 가이드만 제공
+  return {
+    guidance: {
+      selfCheck: {
         questions: [
-          "정말 그럴까요? 다른 가능성은 없을까요?",
-          "친구라면 나에게 뭐라고 말해줄까요?",
-          "이 상황이 영원히 계속될까요?"
+          "이 생각이 정말 사실일까요?",
+          "다른 사람이라면 어떻게 생각할까요?",
+          "이 생각이 나에게 도움이 될까요?",
+          "더 균형잡힌 생각은 무엇일까요?"
         ],
-        encouragement: "힘든 마음이 이해가 되어요. 함께 다른 관점에서 생각해볼까요?"
+        thinkingPatterns: [
+          "흑백사고: 좋거나 나쁘거나만 생각하기",
+          "과잉일반화: 한 번 일어난 일이 계속 일어날 거라고 생각하기", 
+          "파국화: 최악의 상황만 상상하기",
+          "마음읽기: 다른 사람의 생각을 추측하기"
+        ],
+        encouragement: `${studentAge}세 친구도 이런 생각이 들 수 있어요. 중요한 건 이 생각이 나를 도와주는지 확인해보는 거예요.`
       },
-      nextStepHint: "이제 이 생각을 다른 관점에서 바라보는 연습을 해봐요."
-    };
-  }
+      nextStepPrompt: "이제 이 생각을 다른 관점에서 바라보는 새로운 생각을 써보세요.",
+      tips: [
+        "완벽하지 않아도 괜찮아요",
+        "조금씩 바뀌는 것도 큰 성장이에요",
+        "친구에게 해줄 말을 나에게도 해보세요"
+      ]
+    },
+    educationalContent: {
+      ageAppropriate: true,
+      selfDirected: true,
+      noJudgment: true,
+      aiAssisted: false
+    }
+  };
 }
 
-// B' 단계: 새로운 생각 가이드
+// B' 단계: 새로운 생각 가이드 (프롬프트 개선)
 async function generateNewBeliefGuide(model, userInput, scenario, studentAge) {
   const prompt = `
-${studentAge}세 학생이 부정적 생각을 긍정적이고 현실적인 생각으로 바꾸는 것을 도와주세요.
+당신은 ${studentAge}세 아이가 더 균형잡힌 사고를 할 수 있도록 도와주는 조력자입니다.
+비판하지 말고, 더 도움이 되는 생각을 제안해주세요.
 
-원래 부정적 생각: ${scenario.commonBeliefs ? scenario.commonBeliefs[0] : '부정적 생각'}
-학생이 시도한 새로운 생각: ${userInput}
+학생이 써본 새로운 생각: "${userInput}"
 
 다음 JSON 형식으로 응답해주세요:
 {
-  "evaluation": {
-    "positivityScore": 0-100,
-    "realismScore": 0-100,
-    "helpfulness": 0-100,
-    "overall": 0-100
+  "encouragement": "시도를 인정하고 격려하는 메시지",
+  "alternativeThoughts": [
+    "더 도움이 될 수 있는 생각1",
+    "더 도움이 될 수 있는 생각2", 
+    "더 도움이 될 수 있는 생각3"
+  ],
+  "cognitiveStrategy": {
+    "name": "증거찾기|관점바꾸기|균형잡기|미래희망",
+    "explanation": "이 방법이 왜 도움되는지 쉽게 설명",
+    "practiceExample": "실제로 써볼 수 있는 예시"
   },
-  "feedback": {
-    "strengths": ["잘한 점1", "잘한 점2"],
-    "improvements": ["개선할 점1", "개선할 점2"],
-    "betterVersions": ["더 나은 표현1", "더 나은 표현2", "더 나은 표현3"]
-  },
-  "cognitiveTools": {
-    "technique": "증거찾기|관점바꾸기|균형잡기|미래상상하기",
-    "explanation": "이 기법이 왜 도움되는지 설명",
-    "examples": ["기법 활용 예시1", "예시2"]
-  },
-  "encouragement": "격려 메시지와 다음 단계 안내"
+  "nextStepGuide": "이제 이 생각으로 어떤 행동을 할지 생각해볼 시간이에요!"
 }
 
-요구사항:
-- 아이의 시도를 인정하고 격려
-- 더 균형잡히고 현실적인 사고로 발전시키기
-- 구체적이고 실용적인 피드백
+중요:
+- 판단하지 말고 더 나은 대안 제시
+- ${studentAge}세가 이해할 수 있는 언어
+- 희망적이고 현실적인 관점 제공
 `;
 
   try {
@@ -279,66 +253,54 @@ ${studentAge}세 학생이 부정적 생각을 긍정적이고 현실적인 생�
     }
   } catch (parseError) {
     return {
-      evaluation: {
-        positivityScore: 75,
-        realismScore: 70,
-        helpfulness: 80,
-        overall: 75
+      encouragement: "새로운 생각을 써보려고 노력한 것만으로도 훌륭해요!",
+      alternativeThoughts: [
+        "힘들지만 조금씩 나아질 수 있어",
+        "완벽하지 않아도 최선을 다하는 것만으로 충분해",
+        "도움을 요청하는 것도 용기 있는 행동이야"
+      ],
+      cognitiveStrategy: {
+        name: "균형잡기",
+        explanation: "어려운 면과 희망적인 면을 함께 보는 연습이에요",
+        practiceExample: "시험이 어렵지만, 열심히 준비하면 내 실력을 보여줄 수 있어"
       },
-      feedback: {
-        strengths: ["긍정적으로 생각하려고 노력했어요", "균형잡힌 관점을 찾고 있어요"],
-        improvements: ["더 구체적으로 표현해보세요", "실현 가능한 방법을 포함해보세요"],
-        betterVersions: [
-          "이런 일도 있지만, 좋은 일도 있을 거야",
-          "처음엔 어렵지만, 조금씩 나아질 수 있어",
-          "완벽하지 않아도 괜찮아, 최선을 다하는 것만으로도 충분해"
-        ]
-      },
-      cognitiveTools: {
-        technique: "균형잡기",
-        explanation: "좋은 면과 어려운 면을 함께 보는 연습이에요",
-        examples: ["힘들지만 극복할 수 있어", "실수했지만 배울 기회야"]
-      },
-      encouragement: "정말 잘하고 있어요! 이제 이 생각으로 어떤 행동을 할지 계획해볼까요?"
+      nextStepGuide: "정말 잘했어요! 이제 이 생각으로 어떤 행동을 할지 계획해볼까요?"
     };
   }
 }
 
-// C' 단계: 긍정적 행동 계획 가이드
+// C' 단계: 행동 계획 가이드 (프롬프트 개선)
 async function generateActionPlanGuide(model, userInput, scenario, studentAge) {
   const prompt = `
-${studentAge}세 학생이 새로운 생각을 바탕으로 세운 행동 계획을 평가하고 개선하도록 도와주세요.
+${studentAge}세 아이가 세운 행동 계획을 더 구체적이고 실현가능하게 발전시켜주세요.
 
-시나리오: ${scenario.situation}
-학생의 행동 계획: ${userInput}
+학생의 행동 계획: "${userInput}"
 
 다음 JSON 형식으로 응답해주세요:
 {
-  "evaluation": {
-    "feasibilityScore": 0-100,
-    "specificityScore": 0-100,
-    "positiveImpactScore": 0-100,
-    "overall": 0-100
+  "encouragement": "계획을 세운 것을 격려하는 메시지",
+  "practicalSteps": [
+    "실제로 할 수 있는 구체적 단계1",
+    "단계2",
+    "단계3"
+  ],
+  "successTips": {
+    "preparation": "미리 준비할 것",
+    "timing": "언제 하면 좋을지",
+    "backup": "계획대로 안 되면 어떻게 할지"
   },
-  "feedback": {
-    "strengths": ["계획의 좋은 점1", "좋은 점2"],
-    "suggestions": ["개선 제안1", "개선 제안2"],
-    "stepByStep": ["구체적 실행 단계1", "단계2", "단계3"]
+  "motivationBoost": {
+    "whyItMatters": "이 행동이 왜 도움될지",
+    "visualizeSuccess": "성공했을 때 어떤 기분일지",
+    "smallStart": "아주 작게라도 시작하는 방법"
   },
-  "practicalTips": {
-    "timing": "언제 실행하면 좋은지",
-    "preparation": "미리 준비할 것들",
-    "obstacles": "예상되는 어려움과 대처법",
-    "support": "도움받을 수 있는 사람이나 방법"
-  },
-  "encouragement": "실행을 격려하는 메시지",
-  "followUp": "실행 후 어떻게 점검할지"
+  "support": "도움받을 수 있는 방법들"
 }
 
-요구사항:
-- 아이가 실제로 실행할 수 있는 현실적인 계획
+중요:
+- ${studentAge}세가 실제로 할 수 있는 현실적 방법
 - 단계별로 구체적인 가이드
-- 긍정적 결과에 대한 기대감 조성
+- 실패해도 괜찮다는 안전감 제공
 `;
 
   try {
@@ -354,29 +316,23 @@ ${studentAge}세 학생이 새로운 생각을 바탕으로 세운 행동 계획
     }
   } catch (parseError) {
     return {
-      evaluation: {
-        feasibilityScore: 80,
-        specificityScore: 70,
-        positiveImpactScore: 85,
-        overall: 78
+      encouragement: "행동 계획을 세운 것이 정말 대단해요!",
+      practicalSteps: [
+        "마음의 준비를 하고",
+        "좋은 기회를 찾아서",
+        "용기내어 한 걸음씩 실행해보기"
+      ],
+      successTips: {
+        preparation: "무슨 말을 할지 미리 한 번 생각해보기",
+        timing: "마음이 편안하고 충분한 시간이 있을 때",
+        backup: "잘 안 되어도 시도한 것만으로 성장한 거예요"
       },
-      feedback: {
-        strengths: ["실천 가능한 좋은 계획이에요", "긍정적인 변화를 만들 수 있을 것 같아요"],
-        suggestions: ["더 구체적인 방법을 추가해보세요", "작은 단계부터 시작해보세요"],
-        stepByStep: [
-          "마음의 준비를 하고",
-          "적절한 때를 선택해서",
-          "용기내어 실행해보기"
-        ]
+      motivationBoost: {
+        whyItMatters: "작은 행동도 큰 변화의 시작이 될 수 있어요",
+        visualizeSuccess: "해낸 후에는 정말 뿌듯하고 자신감이 생길 거예요",
+        smallStart: "한 번에 다 하려고 하지 말고, 오늘은 한 가지만 해봐요"
       },
-      practicalTips: {
-        timing: "마음이 편안할 때, 충분한 시간이 있을 때",
-        preparation: "무슨 말을 할지 미리 생각해보기",
-        obstacles: "거절당할 수도 있지만, 그래도 시도한 것만으로도 성장이에요",
-        support: "가족이나 친한 친구에게 응원받기"
-      },
-      encouragement: "훌륭한 계획이에요! 작은 걸음부터 시작해보세요. 할 수 있어요!",
-      followUp: "실행 후에 어떤 기분이었는지, 무엇을 배웠는지 되돌아보기"
+      support: "가족이나 친구, 선생님께 응원받으세요"
     };
   }
 }
@@ -448,6 +404,7 @@ ${studentAge}세 학생이 ABC 모델을 완성했습니다. 전체적인 분석
 - 성취감을 느낄 수 있는 격려적 톤
 - 구체적이고 개인화된 피드백
 - 다음 학습을 위한 동기부여
+- 학생이 스스로 B단계를 성찰한 것을 특별히 칭찬
 `;
 
       const result = await model.generateContent(prompt);
@@ -465,39 +422,42 @@ ${studentAge}세 학생이 ABC 모델을 완성했습니다. 전체적인 분석
           responses,
           summary: summaryResult,
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          modelVersion: "gemini-1.5-pro",
+          modelVersion: "optimized-abc-v1.0",
           source: "http",
         }).catch((error) => console.error("ABC 완료 데이터 저장 오류:", error));
 
-        // 스킬 포인트 업데이트
-        const skillPoints = Math.round(summaryResult.summary.overall / 10);
-        updateUserSkills(req.user.uid, "cognitiveRestructuring", skillPoints).catch(console.error);
+        // 스킬 포인트 업데이트 (자기 성찰 보너스 추가)
+        const basePoints = Math.round(summaryResult.summary.overall / 10);
+        const selfReflectionBonus = 2; // B단계 자기 성찰 보너스
+        const totalPoints = basePoints + selfReflectionBonus;
+        
+        updateUserSkills(req.user.uid, "cognitiveRestructuring", totalPoints).catch(console.error);
 
         res.json(summaryResult);
       } catch (parseError) {
         // 기본 응답
         res.json({
           summary: {
-            cognitiveGrowth: 80,
-            emotionalRegulation: 75,
+            cognitiveGrowth: 85,
+            emotionalRegulation: 80,
             problemSolving: 82,
-            overall: 79
+            overall: 82
           },
           highlights: {
-            bestAspect: "새로운 관점으로 생각하려고 노력한 점",
+            bestAspect: "스스로 부정적 생각을 인식하고 새로운 관점으로 생각하려고 노력한 점",
             improvementArea: "더 구체적인 행동 계획 세우기",
-            keyLearning: "생각을 바꾸면 기분도 행동도 달라질 수 있다는 것"
+            keyLearning: "생각을 바꾸면 기분도 행동도 달라질 수 있다는 것을 스스로 깨달았어요"
           },
           personalizedAdvice: {
-            strengthsToKeep: ["긍정적으로 생각하려는 노력", "문제를 해결하려는 의지"],
+            strengthsToKeep: ["스스로 생각하는 능력", "긍정적으로 바꾸려는 의지"],
             skillsToImprove: ["더 다양한 관점에서 생각하기", "구체적인 계획 세우기"],
             nextChallenges: ["다른 시나리오에도 ABC 모델 적용해보기", "일상에서 실제로 실천해보기"]
           },
-          motivationalMessage: "정말 훌륭하게 해냈어요! ABC 모델을 잘 이해하고 적용했네요. 이제 실제 상황에서도 이렇게 생각해볼 수 있을 거예요.",
+          motivationalMessage: "정말 훌륭하게 해냈어요! 특히 스스로 생각을 분석한 것이 대단해요. 이제 실제 상황에서도 이렇게 생각해볼 수 있을 거예요.",
           progressBadge: {
-            name: "사고력 탐험가",
-            description: "새로운 관점으로 생각하는 방법을 배웠어요",
-            icon: "🧠"
+            name: "자기 성찰 탐험가",
+            description: "스스로 생각을 돌아보고 새로운 관점을 찾았어요",
+            icon: "🧠✨"
           }
         });
       }
