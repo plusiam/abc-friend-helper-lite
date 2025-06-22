@@ -5,9 +5,6 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   TrophyIcon,
   StarIcon,
-  HeartIcon,
-  LightBulbIcon,
-  UserGroupIcon,
   ChatBubbleLeftEllipsisIcon,
   AcademicCapIcon,
   FireIcon,
@@ -156,7 +153,7 @@ const AchievementsPage = () => {
       condition: () => false
     },
     nightOwl: {
-      name: '올븼이',
+      name: '올빼미',
       description: '오후 10시 이후에 상담을 완료했어요!',
       icon: '🦉',
       category: 'special',
