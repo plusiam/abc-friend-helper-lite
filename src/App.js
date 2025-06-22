@@ -11,6 +11,7 @@ import CounselingMode from './pages/CounselingMode';
 import ProfilePage from './pages/ProfilePage';
 import AchievementsPage from './pages/AchievementsPage';
 import ResultsPage from './pages/ResultsPage';
+import ABCResultsPage from './pages/ABCResultsPage'; // 새로 추가
 
 // 공통 컴포넌트
 import Navigation from './components/common/Navigation';
@@ -43,6 +44,7 @@ function App() {
                 <Route path="/practice" element={<PracticeMode />} />
                 <Route path="/counseling" element={<CounselingMode />} />
                 <Route path="/counseling/result" element={<ResultsPage />} />
+                <Route path="/abc/result" element={<ABCResultsPage />} /> {/* 새로 추가 */}
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/achievements" element={<AchievementsPage />} />
                 <Route path="*" element={<Navigate to="/" />} />
