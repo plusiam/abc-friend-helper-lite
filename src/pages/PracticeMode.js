@@ -1,4 +1,4 @@
-// src/pages/PracticeMode.js - 연습 모드 페이지
+// src/pages/PracticeMode.js - ABC 모델 기반 연습 모드
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
@@ -19,129 +19,383 @@ const PracticeMode = () => {
   const { user, signInAnonymous } = useAuth();
   const { startPracticeMode, practiceMode, addPracticeMessage } = useCounseling();
   const { getVirtualFriendResponse, loading } = useAI();
-  const [selectedPersonality, setSelectedPersonality] = useState(null);
-  const [currentProblem, setCurrentProblem] = useState('');
-  const [userMessage, setUserMessage] = useState('');
-  const [isStarted, setIsStarted] = useState(false);
+  const [selectedScenario, setSelectedScenario] = useState(null);
+  const [currentStep, setCurrentStep] = useState('A'); // A -> B -> B' -> C'
+  const [responses, setResponses] = useState({
+    A: '', // 상황
+    B: '', // 부정적 생각
+    B_prime: '', // 새로운 생각
+    C_prime: '' // 긍정적 결과
+  });
 
-  const personalities = [
+  // ABC 기반 시나리오 - 교육적 가치 극대화
+  const abcScenarios = [
     {
-      id: 'shy',
-      name: '수줍은 친구',
-      description: '말을 잘 안하고 내성적이에요',
-      icon: '😳',
-      traits: ['말을 자주 말아요', '감정 표현을 어려워해요', '시간이 필요해요'],
-      tip: '인내심을 가지고 천천히 들어주세요'
+      id: 'friendship_conflict',
+      title: '🤝 친구 관계 갈등',
+      description: '친구와의 오해로 인한 갈등 상황',
+      situation: '가장 친한 친구가 나의 비밀을 다른 친구들에게 말했다는 걸 알게 되었어.',
+      commonBeliefs: [
+        '친구가 나를 배신했어',
+        '더 이상 믿을 수 없어',
+        '모든 친구들이 나를 비웃고 있을 거야'
+      ],
+      guidedQuestions: [
+        '다른 관점에서 생각해볼 수는 없을까?',
+        '친구의 입장은 어땠을까?',
+        '이 상황을 해결할 방법은 무엇일까?'
+      ],
+      newBeliefExamples: [
+        '친구도 실수할 수 있어',
+        '직접 대화해서 오해를 풀어보자',
+        '우정은 한 번의 실수로 끝나지 않아'
+      ],
+      positiveOutcomes: [
+        '친구와 솔직한 대화 나누기',
+        '더 깊은 신뢰 관계 만들기',
+        '갈등 해결 능력 키우기'
+      ]
     },
     {
-      id: 'talkative',
-      name: '활발한 친구',
-      description: '말이 많고 감정 표현이 풍부해요',
-      icon: '😄',
-      traits: ['이야기를 자세히 해요', '감정을 솔직하게 말해요', '주제가 자주 바뀔어요'],
-      tip: '핑심을 파악하고 집중하도록 도와주세요'
+      id: 'academic_failure',
+      title: '📚 학업 실패',
+      description: '시험이나 과제에서 실패한 상황',
+      situation: '열심히 공부했는데도 시험 점수가 생각보다 많이 낮게 나왔어.',
+      commonBeliefs: [
+        '난 정말 바보인가봐',
+        '아무리 노력해도 소용없어',
+        '부모님이 실망하실 거야'
+      ],
+      guidedQuestions: [
+        '이번 실패에서 배울 점은 무엇일까?',
+        '노력 자체에도 의미가 있지 않을까?',
+        '다음엔 어떻게 다르게 접근할 수 있을까?'
+      ],
+      newBeliefExamples: [
+        '실패는 성장의 기회야',
+        '공부 방법을 바꿔보자',
+        '노력하는 과정 자체가 의미있어'
+      ],
+      positiveOutcomes: [
+        '새로운 학습 전략 시도하기',
+        '선생님께 도움 요청하기',
+        '꾸준한 노력 계속하기'
+      ]
     },
     {
-      id: 'emotional',
-      name: '감정적인 친구',
-      description: '감정의 기복이 심하고 울기도 해요',
-      icon: '😢',
-      traits: ['감정이 격해요', '울거나 화낼 수 있어요', '공감을 받으면 진정돼요'],
-      tip: '감정을 인정하고 따뜻하게 대해주세요'
+      id: 'family_conflict',
+      title: '👨‍👩‍👧‍👦 가족 갈등',
+      description: '부모님이나 형제자매와의 갈등',
+      situation: '부모님이 게임 시간을 제한하시면서 자꾸 공부만 하라고 하셔.',
+      commonBeliefs: [
+        '부모님이 나를 이해하지 못해',
+        '너무 불공평해',
+        '내 의견은 중요하지 않나봐'
+      ],
+      guidedQuestions: [
+        '부모님의 마음은 어떨까?',
+        '서로의 입장을 이해할 방법은?',
+        '좋은 해결책을 함께 찾을 수 있을까?'
+      ],
+      newBeliefExamples: [
+        '부모님도 나를 사랑해서 그러시는 거야',
+        '서로 대화하면 해결될 수 있어',
+        '규칙도 필요하지만 타협도 가능해'
+      ],
+      positiveOutcomes: [
+        '가족 회의 제안하기',
+        '균형잡힌 시간표 만들기',
+        '서로의 마음 이해하기'
+      ]
     }
   ];
 
-  const sampleProblems = [
-    '친구들이 나를 따돼해서 너무 속상해',
-    '시험을 망쳐서 부모님이 화내셨어',
-    '좋아하는 친구가 나를 싫어하는 것 같아',
-    '형/누나와 자꾸 싸워서 집에서 스트레스받아',
-    '새 학교에 전학 와서 친구가 한 명도 없어'
-  ];
-
-  const handleStartPractice = async () => {
-    if (!user) {
-      await signInAnonymous();
-    }
-    
-    if (!selectedPersonality || !currentProblem.trim()) {
-      toast.error('친구 성격과 문제 상황을 선택해주세요!');
-      return;
-    }
-
-    startPracticeMode(selectedPersonality);
-    setIsStarted(true);
-    
-    // 첫 번째 AI 친구 메시지 생성
-    try {
-      const response = await getVirtualFriendResponse({
-        personality: selectedPersonality,
-        problem: currentProblem,
-        counselorMessage: '안녕! 무슨 일이야? 너 잘릾 기분이 안 좋아 보이는데...',
-        conversationHistory: []
-      });
-      
-      addPracticeMessage({
-        role: 'friend',
-        content: currentProblem,
-        timestamp: new Date()
-      });
-      
-      setTimeout(() => {
-        addPracticeMessage({
-          role: 'friend',
-          content: response.friendResponse,
-          timestamp: new Date()
-        });
-      }, 1000);
-    } catch (error) {
-      toast.error('연습 시작 중 오류가 발생했습니다.');
-    }
+  const stepTitles = {
+    A: '📍 1단계: 상황 파악하기',
+    B: '💭 2단계: 부정적 생각 찾기', 
+    B_prime: '✨ 3단계: 새로운 관점 찾기',
+    C_prime: '🌟 4단계: 긍정적 행동 계획하기'
   };
 
-  const handleSendMessage = async () => {
-    if (!userMessage.trim()) return;
-    
-    // 사용자 메시지 추가
-    addPracticeMessage({
-      role: 'counselor',
-      content: userMessage,
-      timestamp: new Date()
+  const handleScenarioSelect = (scenario) => {
+    setSelectedScenario(scenario);
+    setCurrentStep('A');
+    setResponses({
+      A: scenario.situation,
+      B: '',
+      B_prime: '',
+      C_prime: ''
     });
+  };
+
+  const handleStepComplete = (step, value) => {
+    setResponses(prev => ({ ...prev, [step]: value }));
     
-    const messageToSend = userMessage;
-    setUserMessage('');
-    
-    try {
-      const response = await getVirtualFriendResponse({
-        personality: selectedPersonality,
-        problem: currentProblem,
-        counselorMessage: messageToSend,
-        conversationHistory: practiceMode.conversationHistory
-      });
-      
-      // AI 친구 응답 추가
-      setTimeout(() => {
-        addPracticeMessage({
-          role: 'friend',
-          content: response.friendResponse,
-          timestamp: new Date(),
-          quality: response.counselingQuality
-        });
-        
-        // 피드백 메시지
-        if (response.counselingQuality && response.counselingQuality.score < 70) {
-          toast.error(`상담 품질: ${response.counselingQuality.score}점. 개선해보세요!`);
-        } else if (response.counselingQuality) {
-          toast.success(`훌륭한 상담이에요! ${response.counselingQuality.score}점`);
-        }
-      }, 1500);
-    } catch (error) {
-      toast.error('메시지 전송 중 오류가 발생했습니다.');
+    // 다음 단계로 자동 진행
+    const steps = ['A', 'B', 'B_prime', 'C_prime'];
+    const currentIndex = steps.indexOf(step);
+    if (currentIndex < steps.length - 1) {
+      setCurrentStep(steps[currentIndex + 1]);
     }
   };
 
-  if (!isStarted) {
+  const renderStepContent = () => {
+    const scenario = selectedScenario;
+    
+    switch (currentStep) {
+      case 'A':
+        return (
+          <div className="space-y-6">
+            <div className="bg-blue-50 p-6 rounded-lg">
+              <h3 className="text-lg font-bold text-blue-800 mb-3">
+                📍 상황 (A - Activating Event)
+              </h3>
+              <div className="bg-white p-4 rounded border-l-4 border-blue-500">
+                <p className="text-gray-800">{scenario.situation}</p>
+              </div>
+            </div>
+            
+            <div className="text-center">
+              <p className="text-gray-600 mb-4">
+                이 상황을 잘 이해했나요? 다음 단계로 넘어가서 어떤 생각이 드는지 알아보겠습니다.
+              </p>
+              <button 
+                onClick={() => setCurrentStep('B')}
+                className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                다음 단계로 →
+              </button>
+            </div>
+          </div>
+        );
+
+      case 'B':
+        return (
+          <div className="space-y-6">
+            <div className="bg-red-50 p-6 rounded-lg">
+              <h3 className="text-lg font-bold text-red-800 mb-3">
+                💭 부정적 생각 찾기 (B - Belief)
+              </h3>
+              <p className="text-red-700 mb-4">
+                이런 상황에서 어떤 부정적인 생각이 들까요?
+              </p>
+              
+              {/* 일반적인 부정적 생각들 예시 */}
+              <div className="grid md:grid-cols-2 gap-3 mb-4">
+                {scenario.commonBeliefs.map((belief, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setResponses(prev => ({ ...prev, B: belief }))}
+                    className={`
+                      p-3 text-left rounded border transition-all
+                      ${responses.B === belief 
+                        ? 'border-red-500 bg-red-100' 
+                        : 'border-gray-200 bg-white hover:border-red-300'
+                      }
+                    `}
+                  >
+                    💭 {belief}
+                  </button>
+                ))}
+              </div>
+              
+              {/* 직접 입력 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  또는 직접 입력해주세요:
+                </label>
+                <textarea
+                  value={responses.B}
+                  onChange={(e) => setResponses(prev => ({ ...prev, B: e.target.value }))}
+                  placeholder="이 상황에서 드는 부정적인 생각을 써보세요..."
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                  rows={3}
+                />
+              </div>
+            </div>
+            
+            {responses.B && (
+              <div className="text-center">
+                <button 
+                  onClick={() => setCurrentStep('B_prime')}
+                  className="bg-orange-500 text-white px-6 py-3 rounded-lg hover:bg-orange-600 transition-colors"
+                >
+                  새로운 관점 찾기 →
+                </button>
+              </div>
+            )}
+          </div>
+        );
+
+      case 'B_prime':
+        return (
+          <div className="space-y-6">
+            <div className="bg-green-50 p-6 rounded-lg">
+              <h3 className="text-lg font-bold text-green-800 mb-3">
+                ✨ 새로운 관점 찾기 (B' - New Belief)
+              </h3>
+              
+              {/* 부정적 생각 다시 보여주기 */}
+              <div className="bg-red-100 p-3 rounded mb-4">
+                <p className="text-red-800">
+                  <span className="font-medium">부정적 생각:</span> {responses.B}
+                </p>
+              </div>
+              
+              <p className="text-green-700 mb-4">
+                이제 이 생각을 다른 관점에서 바라보겠습니다. 다음 질문들을 생각해보세요:
+              </p>
+              
+              {/* 가이드 질문들 */}
+              <div className="space-y-2 mb-4">
+                {scenario.guidedQuestions.map((question, index) => (
+                  <div key={index} className="flex items-start space-x-2">
+                    <span className="text-green-600">❓</span>
+                    <p className="text-gray-700">{question}</p>
+                  </div>
+                ))}
+              </div>
+              
+              {/* 새로운 생각 예시들 */}
+              <div className="grid md:grid-cols-2 gap-3 mb-4">
+                {scenario.newBeliefExamples.map((belief, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setResponses(prev => ({ ...prev, B_prime: belief }))}
+                    className={`
+                      p-3 text-left rounded border transition-all
+                      ${responses.B_prime === belief 
+                        ? 'border-green-500 bg-green-100' 
+                        : 'border-gray-200 bg-white hover:border-green-300'
+                      }
+                    `}
+                  >
+                    ✨ {belief}
+                  </button>
+                ))}
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  나만의 새로운 생각:
+                </label>
+                <textarea
+                  value={responses.B_prime}
+                  onChange={(e) => setResponses(prev => ({ ...prev, B_prime: e.target.value }))}
+                  placeholder="더 긍정적이고 현실적인 새로운 생각을 써보세요..."
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                  rows={3}
+                />
+              </div>
+            </div>
+            
+            {responses.B_prime && (
+              <div className="text-center">
+                <button 
+                  onClick={() => setCurrentStep('C_prime')}
+                  className="bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-colors"
+                >
+                  행동 계획 세우기 →
+                </button>
+              </div>
+            )}
+          </div>
+        );
+
+      case 'C_prime':
+        return (
+          <div className="space-y-6">
+            <div className="bg-purple-50 p-6 rounded-lg">
+              <h3 className="text-lg font-bold text-purple-800 mb-3">
+                🌟 긍정적 행동 계획 (C' - New Consequence)
+              </h3>
+              
+              {/* 변화 과정 요약 */}
+              <div className="space-y-3 mb-6">
+                <div className="bg-red-100 p-3 rounded">
+                  <p className="text-red-800">
+                    <span className="font-medium">이전 생각:</span> {responses.B}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <span className="text-2xl">⬇️</span>
+                </div>
+                <div className="bg-green-100 p-3 rounded">
+                  <p className="text-green-800">
+                    <span className="font-medium">새로운 생각:</span> {responses.B_prime}
+                  </p>
+                </div>
+              </div>
+              
+              <p className="text-purple-700 mb-4">
+                새로운 생각을 바탕으로 어떤 긍정적인 행동을 할 수 있을까요?
+              </p>
+              
+              {/* 긍정적 행동 예시들 */}
+              <div className="grid md:grid-cols-2 gap-3 mb-4">
+                {scenario.positiveOutcomes.map((action, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setResponses(prev => ({ ...prev, C_prime: action }))}
+                    className={`
+                      p-3 text-left rounded border transition-all
+                      ${responses.C_prime === action 
+                        ? 'border-purple-500 bg-purple-100' 
+                        : 'border-gray-200 bg-white hover:border-purple-300'
+                      }
+                    `}
+                  >
+                    🌟 {action}
+                  </button>
+                ))}
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  나만의 행동 계획:
+                </label>
+                <textarea
+                  value={responses.C_prime}
+                  onChange={(e) => setResponses(prev => ({ ...prev, C_prime: e.target.value }))}
+                  placeholder="구체적으로 어떤 행동을 할지 계획해보세요..."
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  rows={3}
+                />
+              </div>
+            </div>
+            
+            {responses.C_prime && (
+              <div className="text-center space-y-4">
+                <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white p-6 rounded-lg">
+                  <h3 className="text-xl font-bold mb-2">🎉 ABC 분석 완성!</h3>
+                  <p>문제 상황을 새로운 관점으로 바라보고 긍정적인 해결책을 찾았습니다.</p>
+                </div>
+                
+                <div className="flex gap-4 justify-center">
+                  <button 
+                    onClick={() => setSelectedScenario(null)}
+                    className="bg-gray-500 text-white px-6 py-3 rounded-lg hover:bg-gray-600 transition-colors"
+                  >
+                    새로운 시나리오
+                  </button>
+                  <button 
+                    onClick={() => {/* 결과 저장 로직 */}}
+                    className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors"
+                  >
+                    결과 저장하기
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  if (!selectedScenario) {
     return (
       <div className="max-w-4xl mx-auto">
         <motion.div
@@ -150,219 +404,112 @@ const PracticeMode = () => {
           className="text-center mb-8"
         >
           <h1 className="text-3xl font-bold text-gray-800 mb-4">
-            🎯 연습 모드
+            🧠 ABC 사고 모델 연습
           </h1>
           <p className="text-lg text-gray-600">
-            AI 친구와 함께 안전하게 상담 연습을 해보세요
+            문제 상황을 새로운 관점에서 바라보고 긍정적인 해결책을 찾아보세요
           </p>
         </motion.div>
 
-        {/* 친구 성격 선택 */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mb-8"
-        >
-          <h2 className="text-xl font-bold text-gray-800 mb-4">
-            1단계: 어떤 친구와 연습할까요? 🤔
-          </h2>
-          
-          <div className="grid md:grid-cols-3 gap-4">
-            {personalities.map((personality) => (
-              <motion.button
-                key={personality.id}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setSelectedPersonality(personality.id)}
-                className={`
-                  p-6 rounded-lg border-2 transition-all
-                  ${selectedPersonality === personality.id
-                    ? 'border-purple-500 bg-purple-50'
-                    : 'border-gray-200 bg-white hover:border-purple-300'
-                  }
-                `}
-              >
-                <div className="text-4xl mb-3">{personality.icon}</div>
-                <h3 className="font-bold text-lg mb-2">{personality.name}</h3>
-                <p className="text-sm text-gray-600 mb-3">{personality.description}</p>
-                
-                <div className="space-y-1">
-                  {personality.traits.map((trait, index) => (
-                    <div key={index} className="text-xs text-gray-500">
-                      • {trait}
-                    </div>
-                  ))}
-                </div>
-                
-                <div className="mt-3 p-2 bg-yellow-50 rounded text-xs text-yellow-700">
-                  💡 {personality.tip}
-                </div>
-              </motion.button>
-            ))}
+        {/* ABC 모델 설명 */}
+        <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-lg mb-8">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">📚 ABC 모델이란?</h2>
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className="bg-blue-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2 text-xl font-bold">A</div>
+              <h3 className="font-bold text-blue-600">상황</h3>
+              <p className="text-sm text-gray-600">어떤 일이 일어났나요?</p>
+            </div>
+            <div className="text-center">
+              <div className="bg-red-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2 text-xl font-bold">B</div>
+              <h3 className="font-bold text-red-600">부정적 생각</h3>
+              <p className="text-sm text-gray-600">어떤 생각이 들었나요?</p>
+            </div>
+            <div className="text-center">
+              <div className="bg-green-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2 text-xl font-bold">B'</div>
+              <h3 className="font-bold text-green-600">새로운 생각</h3>
+              <p className="text-sm text-gray-600">다른 관점은 없을까요?</p>
+            </div>
+            <div className="text-center">
+              <div className="bg-purple-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2 text-xl font-bold">C'</div>
+              <h3 className="font-bold text-purple-600">긍정적 행동</h3>
+              <p className="text-sm text-gray-600">어떻게 행동할까요?</p>
+            </div>
           </div>
-        </motion.section>
+        </div>
 
-        {/* 문제 상황 선택 */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mb-8"
-        >
-          <h2 className="text-xl font-bold text-gray-800 mb-4">
-            2단계: 친구가 어떤 문제를 가지고 있을까요? 😔
-          </h2>
-          
-          <div className="space-y-3 mb-4">
-            {sampleProblems.map((problem, index) => (
-              <motion.button
-                key={index}
-                whileHover={{ scale: 1.01 }}
-                onClick={() => setCurrentProblem(problem)}
-                className={`
-                  w-full p-3 text-left rounded-lg border transition-all
-                  ${currentProblem === problem
-                    ? 'border-purple-500 bg-purple-50'
-                    : 'border-gray-200 bg-white hover:border-purple-300'
-                  }
-                `}
-              >
-                {problem}
-              </motion.button>
-            ))}
-          </div>
-          
-          <div className="relative">
-            <textarea
-              value={currentProblem}
-              onChange={(e) => setCurrentProblem(e.target.value)}
-              placeholder="또는 직접 입력해주세요..."
-              className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
-              rows={3}
-            />
-          </div>
-        </motion.section>
-
-        {/* 시작 버튼 */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="text-center"
-        >
-          <button
-            onClick={handleStartPractice}
-            disabled={!selectedPersonality || !currentProblem.trim()}
-            className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-8 py-4 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all"
-          >
-            <PlayIcon className="w-5 h-5 inline mr-2" />
-            연습 시작하기
-          </button>
-        </motion.div>
+        {/* 시나리오 선택 */}
+        <div className="grid md:grid-cols-3 gap-6">
+          {abcScenarios.map((scenario) => (
+            <motion.button
+              key={scenario.id}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => handleScenarioSelect(scenario)}
+              className="bg-white border-2 border-gray-200 hover:border-purple-300 p-6 rounded-lg text-left transition-all"
+            >
+              <div className="text-2xl mb-3">{scenario.title}</div>
+              <p className="font-medium text-gray-800 mb-2">{scenario.description}</p>
+              <p className="text-sm text-gray-600">{scenario.situation.slice(0, 60)}...</p>
+            </motion.button>
+          ))}
+        </div>
       </div>
     );
   }
 
-  // 연습 진행 화면
   return (
     <div className="max-w-4xl mx-auto">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={() => {
-            setIsStarted(false);
-            setSelectedPersonality(null);
-            setCurrentProblem('');
-          }}
-          className="flex items-center text-gray-600 hover:text-gray-800"
-        >
-          <ArrowLeftIcon className="w-5 h-5 mr-2" />
-          다시 선택하기
-        </button>
-        
-        <div className="text-center">
-          <h1 className="text-xl font-bold text-gray-800">
-            {personalities.find(p => p.id === selectedPersonality)?.name}
+      {/* 진행 상황 표시 */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-gray-800">
+            {selectedScenario.title}
           </h1>
-          <p className="text-sm text-gray-600">연습 중...</p>
+          <button 
+            onClick={() => setSelectedScenario(null)}
+            className="text-gray-500 hover:text-gray-700"
+          >
+            ← 다른 시나리오 선택
+          </button>
         </div>
         
-        <div className="w-20" /> {/* 공간 맞춤용 */}
-      </div>
-
-      {/* 대화창 */}
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6 h-96 overflow-y-auto">
-        <div className="space-y-4">
-          {practiceMode.conversationHistory.map((message, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`flex ${message.role === 'counselor' ? 'justify-end' : 'justify-start'}`}
-            >
+        {/* 단계 진행 바 */}
+        <div className="flex items-center space-x-4">
+          {['A', 'B', 'B_prime', 'C_prime'].map((step, index) => (
+            <div key={step} className="flex items-center">
               <div className={`
-                max-w-xs lg:max-w-md px-4 py-2 rounded-lg
-                ${message.role === 'counselor'
-                  ? 'bg-purple-500 text-white'
-                  : 'bg-gray-100 text-gray-800'
+                w-10 h-10 rounded-full flex items-center justify-center font-bold
+                ${currentStep === step || responses[step] 
+                  ? 'bg-purple-500 text-white' 
+                  : 'bg-gray-200 text-gray-500'
                 }
               `}>
-                <div className="flex items-center mb-1">
-                  {message.role === 'counselor' ? (
-                    <UserIcon className="w-4 h-4 mr-2" />
-                  ) : (
-                    <span className="text-lg mr-2">
-                      {personalities.find(p => p.id === selectedPersonality)?.icon}
-                    </span>
-                  )}
-                  <span className="text-xs opacity-75">
-                    {message.role === 'counselor' ? '나' : '친구'}
-                  </span>
-                </div>
-                <p>{message.content}</p>
-                
-                {message.quality && (
-                  <div className="mt-2 text-xs opacity-75">
-                    상담 품질: {message.quality.score}점
-                  </div>
-                )}
+                {step === 'B_prime' ? "B'" : step === 'C_prime' ? "C'" : step}
               </div>
-            </motion.div>
-          ))}
-          
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-gray-100 px-4 py-2 rounded-lg">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                </div>
-              </div>
+              {index < 3 && (
+                <div className={`w-8 h-1 mx-2 ${
+                  responses[step] ? 'bg-purple-500' : 'bg-gray-200'
+                }`} />
+              )}
             </div>
-          )}
+          ))}
         </div>
+        
+        <h2 className="text-lg font-medium text-gray-700 mt-4">
+          {stepTitles[currentStep]}
+        </h2>
       </div>
 
-      {/* 메시지 입력 */}
-      <div className="flex space-x-4">
-        <input
-          type="text"
-          value={userMessage}
-          onChange={(e) => setUserMessage(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-          placeholder="친구에게 할 말을 입력하세요..."
-          className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-        />
-        <button
-          onClick={handleSendMessage}
-          disabled={!userMessage.trim() || loading}
-          className="bg-purple-500 text-white px-6 py-3 rounded-lg hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          전송
-        </button>
-      </div>
+      {/* 단계별 내용 */}
+      <motion.div
+        key={currentStep}
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -20 }}
+      >
+        {renderStepContent()}
+      </motion.div>
     </div>
   );
 };
