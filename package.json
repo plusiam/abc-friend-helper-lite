@@ -1,29 +1,40 @@
 {
   "name": "abc-friend-helper",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "dependencies": {
     "@heroicons/react": "^2.0.18",
-    "axios": "^1.6.2",
-    "firebase": "^10.7.0",
-    "framer-motion": "^10.16.0",
+    "axios": "^1.6.5",
+    "firebase": "^10.7.2",
+    "framer-motion": "^10.18.0",
     "react": "^18.2.0",
     "react-confetti": "^6.1.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
-    "react-router-dom": "^6.20.0",
-    "use-sound": "^4.0.1"
+    "react-router-dom": "^6.20.1",
+    "use-sound": "^4.0.1",
+    "react-chartjs-2": "^5.2.0",
+    "chart.js": "^4.4.1",
+    "date-fns": "^3.0.6",
+    "lodash": "^4.17.21",
+    "react-spring": "^9.7.3"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "deploy": "npm run build && firebase deploy"
+    "deploy": "npm run build && firebase deploy",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "deploy:functions": "firebase deploy --only functions",
+    "emulator": "firebase emulators:start",
+    "lint": "eslint src --ext .js,.jsx --fix",
+    "format": "prettier --write \"src/**/*.{js,jsx,css,md}\""
   },
   "eslintConfig": {
     "extends": [
-      "react-app"
+      "react-app",
+      "react-app/jest"
     ]
   },
   "browserslist": {
@@ -39,12 +50,17 @@
     ]
   },
   "devDependencies": {
-    "@tailwindcss/forms": "^0.5.10",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
+    "@tailwindcss/forms": "^0.5.7",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "@types/lodash": "^4.14.202",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
     "react-scripts": "5.0.1",
-    "tailwindcss": "^3.3.6"
+    "tailwindcss": "^3.4.0",
+    "prettier": "^3.1.1",
+    "eslint": "^8.56.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0"
   }
 }
