@@ -2,9 +2,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const {GoogleGenerativeAI, HarmCategory, HarmBlockThreshold} = require("@google/generative-ai");
-const cors = require("cors")({origin: true});
-const express = require("express");
-const helmet = require("helmet");
 const {RateLimiterMemory} = require("rate-limiter-flexible");
 
 // Firebase Admin 초기화
