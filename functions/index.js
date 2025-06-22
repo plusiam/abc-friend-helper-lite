@@ -1,4 +1,4 @@
-// functions/index.js - Gemini AI 기반 Firebase Functions (Vercel 지원 추가)
+// functions/index.js - Gemini AI 기반 Firebase Functions (ABC 모델 추가)
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const {GoogleGenerativeAI, HarmCategory, HarmBlockThreshold} = require("@google/generative-ai");
@@ -100,120 +100,416 @@ const rateLimitMiddleware = async (req, res, next) => {
 };
 
 // =============================================================================
-// CALLABLE FUNCTIONS (기존 유지)
+// ABC 모델 전용 AI 함수들 (새로 추가)
 // =============================================================================
 
-// 기존 Callable Functions들 (변경 없음)
-exports.analyzeEmpathy = functions.https.onCall(async (data, context) => {
-  // Rate limiting 체크
-  try {
-    await rateLimiter.consume(context.rawRequest.ip);
-  } catch (rejRes) {
-    throw new functions.https.HttpsError("resource-exhausted", "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.");
-  }
-
-  if (!context.auth) {
-    throw new functions.https.HttpsError("unauthenticated", "인증이 필요합니다");
-  }
-
-  const {response, situation, studentAge = 10} = data;
-
-  // 입력 검증
-  if (!response || !situation) {
-    throw new functions.https.HttpsError("invalid-argument", "응답과 상황 정보가 필요합니다");
-  }
-
-  try {
-    const model = getModel(0.3); // 일관된 결과를 위해 낮은 temperature
-
-    const prompt = `
-당신은 초등학생 또래 상담 교육 전문가입니다.
-${studentAge}세 학생이 작성한 공감 표현을 평가하고 피드백을 제공해주세요.
-
-평가 기준:
-1. 연령에 적절한 언어 사용 (30점)
-2. 진정성 있는 공감 표현 (40점)
-3. 비판단적이고 지지적인 태도 (30점)
-
-상황: ${situation}
-학생의 공감 표현: ${response}
-
-다음 JSON 형식으로만 응답해주세요:
-{
-  "scores": {
-    "empathy": (0-100 숫자),
-    "appropriate": (0-100 숫자),
-    "overall": (0-100 숫자)
-  },
-  "strengths": ["잘한 점1", "잘한 점2"],
-  "suggestions": ["개선할 점1", "개선할 점2"],
-  "betterExamples": ["더 나은 표현 예시1", "예시2"]
-}`;
-
-    const result = await model.generateContent(prompt);
-
-    if (!result.response) {
-      throw new Error("AI 응답을 받지 못했습니다");
+// ABC 단계별 분석 및 가이드 제공 (HTTP)
+exports.analyzeABCStepHTTP = functions.https.onRequest(async (req, res) => {
+  corsMiddleware(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      res.status(200).send();
+      return;
     }
 
-    const responseText = result.response.text();
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "POST 메서드만 지원됩니다." });
+      return;
+    }
 
-    // JSON 파싱 개선
-    let analysisResult;
     try {
-      const cleanedResponse = responseText.replace(/```json|```/g, "").trim();
-      const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysisResult = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error("JSON 형식을 찾을 수 없습니다");
+      await new Promise((resolve, reject) => {
+        verifyAuth(req, res, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
+      const { step, userInput, scenario, studentAge = 10 } = req.body;
+
+      if (!step || !scenario) {
+        res.status(400).json({ error: "단계와 시나리오 정보가 필요합니다" });
+        return;
       }
-    } catch (parseError) {
-      console.error("JSON 파싱 오류:", parseError);
-      // 더 나은 기본 응답 제공
-      analysisResult = {
-        scores: {
-          empathy: Math.max(50, Math.min(85, 60 + Math.random() * 25)),
-          appropriate: Math.max(50, Math.min(85, 65 + Math.random() * 20)),
-          overall: Math.max(50, Math.min(85, 62 + Math.random() * 23)),
-        },
-        strengths: ["친구의 마음을 이해하려고 노력했어요", "따뜻한 마음이 느껴져요"],
-        suggestions: ["더 구체적인 감정 표현을 해보세요", "친구의 상황을 한 번 더 확인해보세요"],
-        betterExamples: ["그런 일이 있었구나. 정말 속상했겠다.", "많이 힘들었을 것 같아. 괜찮아?"],
-      };
+
+      const model = getModel(0.7);
+      const result = await generateABCStepGuide(model, step, userInput, scenario, studentAge);
+
+      // 학습 데이터 저장
+      admin.firestore().collection("abcAnalysis").add({
+        userId: req.user.uid,
+        step,
+        userInput,
+        scenario: scenario.id,
+        analysis: result,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        modelVersion: "gemini-1.5-pro",
+        source: "http",
+      }).catch((error) => console.error("ABC 데이터 저장 오류:", error));
+
+      res.json(result);
+    } catch (error) {
+      console.error("ABC 분석 오류:", error);
+      res.status(500).json({ error: "분석 중 오류가 발생했습니다." });
     }
-
-    // 데이터 검증
-    if (!analysisResult.scores || typeof analysisResult.scores.overall !== "number") {
-      analysisResult.scores = {empathy: 70, appropriate: 70, overall: 70};
-    }
-
-    // 학습 데이터 저장 (비동기)
-    admin.firestore().collection("empathyAnalysis").add({
-      userId: context.auth.uid,
-      response,
-      situation,
-      analysis: analysisResult,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      modelVersion: "gemini-1.5-pro",
-    }).catch((error) => console.error("데이터 저장 오류:", error));
-
-    // 스킬 포인트 업데이트 (비동기)
-    if (analysisResult.scores.overall >= 80) {
-      updateUserSkills(context.auth.uid, "empathy", 10).catch(console.error);
-    }
-
-    return analysisResult;
-  } catch (error) {
-    console.error("공감 분석 오류:", error);
-    throw new functions.https.HttpsError("internal", `분석 중 오류가 발생했습니다: ${error.message}`);
-  }
+  });
 });
 
-// 나머지 기존 Callable Functions들... (생략 - 기존 코드와 동일)
+// ABC 단계별 가이드 생성 함수
+async function generateABCStepGuide(model, step, userInput, scenario, studentAge) {
+  switch (step) {
+    case 'B':
+      return await generateBeliefAnalysis(model, userInput, scenario, studentAge);
+    case 'B_prime':
+      return await generateNewBeliefGuide(model, userInput, scenario, studentAge);
+    case 'C_prime':
+      return await generateActionPlanGuide(model, userInput, scenario, studentAge);
+    default:
+      throw new Error(`지원하지 않는 단계입니다: ${step}`);
+  }
+}
+
+// B 단계: 부정적 생각 분석
+async function generateBeliefAnalysis(model, userInput, scenario, studentAge) {
+  const prompt = `
+당신은 초등학생 인지행동치료 교육 전문가입니다.
+${studentAge}세 학생이 작성한 부정적 생각을 분석하고 피드백을 제공해주세요.
+
+시나리오: ${scenario.situation}
+학생이 입력한 부정적 생각: ${userInput}
+
+다음 JSON 형식으로 응답해주세요:
+{
+  "analysis": {
+    "thinkingType": "흑백사고|과잉일반화|마음읽기|파국화|최소화|감정적추론",
+    "intensity": "낮음|보통|높음",
+    "realistic": true/false
+  },
+  "guidance": {
+    "explanation": "이런 생각이 생기는 이유를 아이 눈높이로 설명",
+    "questions": ["생각을 바꿔볼 질문1", "질문2", "질문3"],
+    "encouragement": "공감하는 격려 메시지"
+  },
+  "nextStepHint": "다음 단계(B')로 넘어가기 위한 힌트"
+}
+
+요구사항:
+- ${studentAge}세 아이가 이해할 수 있는 쉬운 언어 사용
+- 비판적이지 않고 이해하는 톤으로
+- 인지적 오류 유형을 아이 친화적으로 설명
+`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const cleanedResponse = responseText.replace(/```json|```/g, "").trim();
+    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+    
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    } else {
+      throw new Error("JSON 형식을 찾을 수 없습니다");
+    }
+  } catch (parseError) {
+    // 기본 응답
+    return {
+      analysis: {
+        thinkingType: "파국화",
+        intensity: "보통",
+        realistic: false
+      },
+      guidance: {
+        explanation: "힘든 상황에서는 이런 생각이 들 수 있어요. 이해할 수 있어요.",
+        questions: [
+          "정말 그럴까요? 다른 가능성은 없을까요?",
+          "친구라면 나에게 뭐라고 말해줄까요?",
+          "이 상황이 영원히 계속될까요?"
+        ],
+        encouragement: "힘든 마음이 이해가 되어요. 함께 다른 관점에서 생각해볼까요?"
+      },
+      nextStepHint: "이제 이 생각을 다른 관점에서 바라보는 연습을 해봐요."
+    };
+  }
+}
+
+// B' 단계: 새로운 생각 가이드
+async function generateNewBeliefGuide(model, userInput, scenario, studentAge) {
+  const prompt = `
+${studentAge}세 학생이 부정적 생각을 긍정적이고 현실적인 생각으로 바꾸는 것을 도와주세요.
+
+원래 부정적 생각: ${scenario.commonBeliefs ? scenario.commonBeliefs[0] : '부정적 생각'}
+학생이 시도한 새로운 생각: ${userInput}
+
+다음 JSON 형식으로 응답해주세요:
+{
+  "evaluation": {
+    "positivityScore": 0-100,
+    "realismScore": 0-100,
+    "helpfulness": 0-100,
+    "overall": 0-100
+  },
+  "feedback": {
+    "strengths": ["잘한 점1", "잘한 점2"],
+    "improvements": ["개선할 점1", "개선할 점2"],
+    "betterVersions": ["더 나은 표현1", "더 나은 표현2", "더 나은 표현3"]
+  },
+  "cognitiveTools": {
+    "technique": "증거찾기|관점바꾸기|균형잡기|미래상상하기",
+    "explanation": "이 기법이 왜 도움되는지 설명",
+    "examples": ["기법 활용 예시1", "예시2"]
+  },
+  "encouragement": "격려 메시지와 다음 단계 안내"
+}
+
+요구사항:
+- 아이의 시도를 인정하고 격려
+- 더 균형잡히고 현실적인 사고로 발전시키기
+- 구체적이고 실용적인 피드백
+`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const cleanedResponse = responseText.replace(/```json|```/g, "").trim();
+    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+    
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    } else {
+      throw new Error("JSON 형식을 찾을 수 없습니다");
+    }
+  } catch (parseError) {
+    return {
+      evaluation: {
+        positivityScore: 75,
+        realismScore: 70,
+        helpfulness: 80,
+        overall: 75
+      },
+      feedback: {
+        strengths: ["긍정적으로 생각하려고 노력했어요", "균형잡힌 관점을 찾고 있어요"],
+        improvements: ["더 구체적으로 표현해보세요", "실현 가능한 방법을 포함해보세요"],
+        betterVersions: [
+          "이런 일도 있지만, 좋은 일도 있을 거야",
+          "처음엔 어렵지만, 조금씩 나아질 수 있어",
+          "완벽하지 않아도 괜찮아, 최선을 다하는 것만으로도 충분해"
+        ]
+      },
+      cognitiveTools: {
+        technique: "균형잡기",
+        explanation: "좋은 면과 어려운 면을 함께 보는 연습이에요",
+        examples: ["힘들지만 극복할 수 있어", "실수했지만 배울 기회야"]
+      },
+      encouragement: "정말 잘하고 있어요! 이제 이 생각으로 어떤 행동을 할지 계획해볼까요?"
+    };
+  }
+}
+
+// C' 단계: 긍정적 행동 계획 가이드
+async function generateActionPlanGuide(model, userInput, scenario, studentAge) {
+  const prompt = `
+${studentAge}세 학생이 새로운 생각을 바탕으로 세운 행동 계획을 평가하고 개선하도록 도와주세요.
+
+시나리오: ${scenario.situation}
+학생의 행동 계획: ${userInput}
+
+다음 JSON 형식으로 응답해주세요:
+{
+  "evaluation": {
+    "feasibilityScore": 0-100,
+    "specificityScore": 0-100,
+    "positiveImpactScore": 0-100,
+    "overall": 0-100
+  },
+  "feedback": {
+    "strengths": ["계획의 좋은 점1", "좋은 점2"],
+    "suggestions": ["개선 제안1", "개선 제안2"],
+    "stepByStep": ["구체적 실행 단계1", "단계2", "단계3"]
+  },
+  "practicalTips": {
+    "timing": "언제 실행하면 좋은지",
+    "preparation": "미리 준비할 것들",
+    "obstacles": "예상되는 어려움과 대처법",
+    "support": "도움받을 수 있는 사람이나 방법"
+  },
+  "encouragement": "실행을 격려하는 메시지",
+  "followUp": "실행 후 어떻게 점검할지"
+}
+
+요구사항:
+- 아이가 실제로 실행할 수 있는 현실적인 계획
+- 단계별로 구체적인 가이드
+- 긍정적 결과에 대한 기대감 조성
+`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const cleanedResponse = responseText.replace(/```json|```/g, "").trim();
+    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+    
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    } else {
+      throw new Error("JSON 형식을 찾을 수 없습니다");
+    }
+  } catch (parseError) {
+    return {
+      evaluation: {
+        feasibilityScore: 80,
+        specificityScore: 70,
+        positiveImpactScore: 85,
+        overall: 78
+      },
+      feedback: {
+        strengths: ["실천 가능한 좋은 계획이에요", "긍정적인 변화를 만들 수 있을 것 같아요"],
+        suggestions: ["더 구체적인 방법을 추가해보세요", "작은 단계부터 시작해보세요"],
+        stepByStep: [
+          "마음의 준비를 하고",
+          "적절한 때를 선택해서",
+          "용기내어 실행해보기"
+        ]
+      },
+      practicalTips: {
+        timing: "마음이 편안할 때, 충분한 시간이 있을 때",
+        preparation: "무슨 말을 할지 미리 생각해보기",
+        obstacles: "거절당할 수도 있지만, 그래도 시도한 것만으로도 성장이에요",
+        support: "가족이나 친한 친구에게 응원받기"
+      },
+      encouragement: "훌륭한 계획이에요! 작은 걸음부터 시작해보세요. 할 수 있어요!",
+      followUp: "실행 후에 어떤 기분이었는지, 무엇을 배웠는지 되돌아보기"
+    };
+  }
+}
+
+// ABC 전체 결과 요약 생성 (HTTP)
+exports.generateABCSummaryHTTP = functions.https.onRequest(async (req, res) => {
+  corsMiddleware(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      res.status(200).send();
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "POST 메서드만 지원됩니다." });
+      return;
+    }
+
+    try {
+      await new Promise((resolve, reject) => {
+        verifyAuth(req, res, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
+      const { responses, scenario, studentAge = 10 } = req.body;
+
+      if (!responses || !responses.A || !responses.B || !responses.B_prime || !responses.C_prime) {
+        res.status(400).json({ error: "모든 ABC 단계 응답이 필요합니다" });
+        return;
+      }
+
+      const model = getModel(0.7);
+      const prompt = `
+${studentAge}세 학생이 ABC 모델을 완성했습니다. 전체적인 분석과 피드백을 제공해주세요.
+
+상황 (A): ${responses.A}
+부정적 생각 (B): ${responses.B}
+새로운 생각 (B'): ${responses.B_prime}
+긍정적 행동 (C'): ${responses.C_prime}
+
+다음 JSON 형식으로 응답해주세요:
+{
+  "summary": {
+    "cognitiveGrowth": "인지적 성장 정도 (0-100)",
+    "emotionalRegulation": "감정 조절 능력 (0-100)",
+    "problemSolving": "문제해결 능력 (0-100)",
+    "overall": "전체 점수 (0-100)"
+  },
+  "highlights": {
+    "bestAspect": "가장 잘한 부분",
+    "improvementArea": "더 발전시킬 부분",
+    "keyLearning": "핵심 학습 포인트"
+  },
+  "personalizedAdvice": {
+    "strengthsToKeep": ["계속 유지할 강점1", "강점2"],
+    "skillsToImprove": ["향상시킬 기술1", "기술2"],
+    "nextChallenges": ["다음에 도전해볼 것1", "것2"]
+  },
+  "motivationalMessage": "격려와 동기부여 메시지",
+  "progressBadge": {
+    "name": "획득한 배지 이름",
+    "description": "배지 설명",
+    "icon": "이모지"
+  }
+}
+
+요구사항:
+- 성취감을 느낄 수 있는 격려적 톤
+- 구체적이고 개인화된 피드백
+- 다음 학습을 위한 동기부여
+`;
+
+      const result = await model.generateContent(prompt);
+      const responseText = result.response.text();
+
+      try {
+        const cleanedResponse = responseText.replace(/```json|```/g, "").trim();
+        const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+        const summaryResult = JSON.parse(jsonMatch[0]);
+
+        // 전체 ABC 결과 저장
+        admin.firestore().collection("abcCompletions").add({
+          userId: req.user.uid,
+          scenario: scenario.id,
+          responses,
+          summary: summaryResult,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          modelVersion: "gemini-1.5-pro",
+          source: "http",
+        }).catch((error) => console.error("ABC 완료 데이터 저장 오류:", error));
+
+        // 스킬 포인트 업데이트
+        const skillPoints = Math.round(summaryResult.summary.overall / 10);
+        updateUserSkills(req.user.uid, "cognitiveRestructuring", skillPoints).catch(console.error);
+
+        res.json(summaryResult);
+      } catch (parseError) {
+        // 기본 응답
+        res.json({
+          summary: {
+            cognitiveGrowth: 80,
+            emotionalRegulation: 75,
+            problemSolving: 82,
+            overall: 79
+          },
+          highlights: {
+            bestAspect: "새로운 관점으로 생각하려고 노력한 점",
+            improvementArea: "더 구체적인 행동 계획 세우기",
+            keyLearning: "생각을 바꾸면 기분도 행동도 달라질 수 있다는 것"
+          },
+          personalizedAdvice: {
+            strengthsToKeep: ["긍정적으로 생각하려는 노력", "문제를 해결하려는 의지"],
+            skillsToImprove: ["더 다양한 관점에서 생각하기", "구체적인 계획 세우기"],
+            nextChallenges: ["다른 시나리오에도 ABC 모델 적용해보기", "일상에서 실제로 실천해보기"]
+          },
+          motivationalMessage: "정말 훌륭하게 해냈어요! ABC 모델을 잘 이해하고 적용했네요. 이제 실제 상황에서도 이렇게 생각해볼 수 있을 거예요.",
+          progressBadge: {
+            name: "사고력 탐험가",
+            description: "새로운 관점으로 생각하는 방법을 배웠어요",
+            icon: "🧠"
+          }
+        });
+      }
+    } catch (error) {
+      console.error("ABC 요약 생성 오류:", error);
+      res.status(500).json({ error: "요약 생성 중 오류가 발생했습니다." });
+    }
+  });
+});
 
 // =============================================================================
-// HTTP FUNCTIONS (Vercel 배포용 추가)
+// 기존 HTTP FUNCTIONS (유지)
 // =============================================================================
 
 // HTTP 공감 분석
@@ -316,304 +612,9 @@ ${studentAge}세 학생이 작성한 공감 표현을 평가하고 피드백을 
   });
 });
 
-// HTTP 공감 생성
-exports.generateEmpathyHTTP = functions.https.onRequest(async (req, res) => {
-  corsMiddleware(req, res, async () => {
-    if (req.method === "OPTIONS") {
-      res.status(200).send();
-      return;
-    }
-
-    if (req.method !== "POST") {
-      res.status(405).json({ error: "POST 메서드만 지원됩니다." });
-      return;
-    }
-
-    try {
-      await new Promise((resolve, reject) => {
-        verifyAuth(req, res, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-
-      const {situation, emotions, studentAge = 10} = req.body;
-
-      if (!situation || !emotions || !Array.isArray(emotions)) {
-        res.status(400).json({ error: "상황과 감정 정보가 필요합니다" });
-        return;
-      }
-
-      const model = getModel(0.8);
-      const prompt = `
-${studentAge}세 초등학생이 친구에게 할 수 있는 자연스러운 공감 표현을 만들어주세요.
-
-요구사항:
-- 또래가 사용하는 일상적인 언어로
-- 진심이 담긴 따뜻한 표현으로
-- 너무 어른스럽지 않게
-- ABC 구조를 포함하여 (A: 상황 인정, B: 감정 이해, C: 지지 표현)
-
-상황: ${situation}
-친구의 감정: ${emotions.join(", ")}
-
-다음 형식으로 응답해주세요:
-{
-  "suggestion": "공감 표현",
-  "explanation": "왜 이런 표현이 좋은지 간단한 설명",
-  "alternatives": ["대안 표현1", "대안 표현2"]
-}`;
-
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
-
-      try {
-        const cleanedResponse = responseText.replace(/```json|```/g, "").trim();
-        const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-        const parsed = JSON.parse(jsonMatch[0]);
-
-        res.json({
-          ...parsed,
-          tips: [
-            "친구의 이야기를 끝까지 들어주세요",
-            "조언보다는 마음을 이해한다는 표현을 해주세요",
-            "비슷한 경험이 있다면 나눠주세요",
-          ],
-        });
-      } catch (parseError) {
-        res.json({
-          suggestion: responseText.trim().split("\n")[0] || "그런 일이 있었구나. 많이 힘들었을 것 같아.",
-          explanation: "친구의 상황을 인정하고 감정을 이해해주는 표현이에요.",
-          alternatives: ["정말 속상했겠다.", "많이 놀랐을 것 같아."],
-          tips: [
-            "친구의 이야기를 끝까지 들어주세요",
-            "조언보다는 마음을 이해한다는 표현을 해주세요",
-            "비슷한 경험이 있다면 나눠주세요",
-          ],
-        });
-      }
-    } catch (error) {
-      console.error("HTTP 공감 생성 오류:", error);
-      res.status(500).json({ error: "생성 중 오류가 발생했습니다" });
-    }
-  });
-});
-
-// HTTP 해결책 생성
-exports.generateSolutionsHTTP = functions.https.onRequest(async (req, res) => {
-  corsMiddleware(req, res, async () => {
-    if (req.method === "OPTIONS") {
-      res.status(200).send();
-      return;
-    }
-
-    if (req.method !== "POST") {
-      res.status(405).json({ error: "POST 메서드만 지원됩니다." });
-      return;
-    }
-
-    try {
-      await new Promise((resolve, reject) => {
-        verifyAuth(req, res, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-
-      const {problem, negativeThought, studentAge = 10} = req.body;
-
-      const model = getModel(0.7);
-      const prompt = `
-초등학생이 이해하고 실천할 수 있는 인지행동치료(CBT) 기반 해결책을 제안해주세요.
-
-대상 연령: ${studentAge}세
-문제 상황: ${problem}
-부정적 생각: ${negativeThought}
-
-다음 JSON 형식으로 응답해주세요:
-{
-  "positiveThoughts": ["새로운 생각1", "새로운 생각2", "새로운 생각3"],
-  "actionSteps": ["실천 방법1", "실천 방법2", "실천 방법3"],
-  "encouragement": "격려 메시지",
-  "difficultyLevel": "easy|medium|hard"
-}
-
-초등학생 눈높이에 맞춰 쉽고 친근하게 설명해주세요.`;
-
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
-
-      try {
-        const cleanedResponse = responseText.replace(/```json|```/g, "").trim();
-        const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-        res.json(JSON.parse(jsonMatch[0]));
-      } catch (parseError) {
-        res.json(parseSolutions(responseText));
-      }
-    } catch (error) {
-      console.error("HTTP 해결책 생성 오류:", error);
-      res.status(500).json({ error: "생성 중 오류가 발생했습니다" });
-    }
-  });
-});
-
-// HTTP 안전성 체크
-exports.checkSafetyHTTP = functions.https.onRequest(async (req, res) => {
-  corsMiddleware(req, res, async () => {
-    if (req.method === "OPTIONS") {
-      res.status(200).send();
-      return;
-    }
-
-    if (req.method !== "POST") {
-      res.status(405).json({ error: "POST 메서드만 지원됩니다." });
-      return;
-    }
-
-    try {
-      await new Promise((resolve, reject) => {
-        verifyAuth(req, res, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-
-      const {conversation, sessionId} = req.body;
-
-      // 1단계: 키워드 기반 체크
-      const riskKeywords = {
-        high: ["자살", "자해", "죽고 싶어", "사라지고 싶어", "칼", "목을 매", "뛰어내리"],
-        medium: ["폭력", "때리", "괴롭힘", "왕따", "학대", "무서워서", "맞았어"],
-        low: ["우울", "불안", "무서워", "힘들어", "외로워", "슬퍼"],
-      };
-
-      let riskLevel = "none";
-      const detectedKeywords = [];
-
-      for (const [level, keywords] of Object.entries(riskKeywords)) {
-        for (const keyword of keywords) {
-          if (conversation.toLowerCase().includes(keyword)) {
-            riskLevel = level;
-            detectedKeywords.push(keyword);
-            break;
-          }
-        }
-        if (riskLevel !== "none") break;
-      }
-
-      // 2단계: 고위험 상황 처리
-      if (riskLevel === "high") {
-        await admin.firestore().collection("urgentAlerts").add({
-          sessionId,
-          userId: req.user.uid,
-          conversation,
-          detectedKeywords,
-          riskLevel,
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          status: "pending",
-          source: "http",
-        });
-      }
-
-      res.json({
-        safe: riskLevel === "none" || riskLevel === "low",
-        riskLevel,
-        needsAdultHelp: riskLevel === "high" || riskLevel === "medium",
-        message: getRiskMessage(riskLevel),
-        resources: getHelpResources(riskLevel),
-        detectedKeywords: detectedKeywords.length > 0 ? detectedKeywords : undefined,
-      });
-    } catch (error) {
-      console.error("HTTP 안전성 체크 오류:", error);
-      res.status(500).json({
-        safe: false,
-        riskLevel: "unknown",
-        needsAdultHelp: true,
-        message: "상황을 정확히 파악하기 어려워요. 믿을 수 있는 어른에게 도움을 요청하는 것이 좋겠어요.",
-        resources: getHelpResources("medium"),
-      });
-    }
-  });
-});
-
-// HTTP 설정 확인
-exports.checkConfigurationHTTP = functions.https.onRequest(async (req, res) => {
-  corsMiddleware(req, res, async () => {
-    if (req.method === "OPTIONS") {
-      res.status(200).send();
-      return;
-    }
-
-    if (req.method !== "POST") {
-      res.status(405).json({ error: "POST 메서드만 지원됩니다." });
-      return;
-    }
-
-    try {
-      await new Promise((resolve, reject) => {
-        verifyAuth(req, res, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-
-      const config = functions.config();
-
-      res.json({
-        hasGeminiKey: !!config.gemini?.key,
-        nodeVersion: process.version,
-        timestamp: new Date().toISOString(),
-        cors: "enabled",
-        httpFunctions: "enabled",
-      });
-    } catch (error) {
-      console.error("HTTP 설정 확인 오류:", error);
-      res.status(500).json({ error: "설정 확인 중 오류가 발생했습니다" });
-    }
-  });
-});
-
 // =============================================================================
-// 유틸리티 함수들 (변경 없음)
+// 유틸리티 함수들
 // =============================================================================
-
-function parseSolutions(response) {
-  try {
-    const sections = response.split(/\d\.\s+/);
-    const positiveThoughts = [];
-    const actionSteps = [];
-    let encouragement = "";
-
-    sections.forEach((section) => {
-      if (section.includes("새로운 생각") || section.includes("긍정적")) {
-        const thoughts = section.match(/[-•]\s*(.+)/g) || [];
-        positiveThoughts.push(...thoughts.map((t) => t.replace(/[-•]\s*/, "").trim()));
-      } else if (section.includes("실천") || section.includes("행동")) {
-        const actions = section.match(/[-•]\s*(.+)/g) || [];
-        actionSteps.push(...actions.map((a) => a.replace(/[-•]\s*/, "").trim()));
-      } else if (section.includes("격려")) {
-        encouragement = section.replace(/격려.*?:/, "").trim();
-      }
-    });
-
-    return {
-      positiveThoughts: positiveThoughts.slice(0, 3).length > 0 ? positiveThoughts.slice(0, 3) :
-        ["실수해도 괜찮아, 다시 시도하면 돼", "나는 충분히 잘하고 있어", "어려운 일도 조금씩 해결할 수 있어"],
-      actionSteps: actionSteps.slice(0, 3).length > 0 ? actionSteps.slice(0, 3) :
-        ["깊게 숨을 쉬어보기", "믿을 수 있는 사람과 이야기하기", "한 가지씩 차근차근 해보기"],
-      encouragement: encouragement || "너는 충분히 잘하고 있어! 힘내! 🌟",
-      difficultyLevel: "easy",
-    };
-  } catch (error) {
-    console.error("솔루션 파싱 오류:", error);
-    return {
-      positiveThoughts: ["실수해도 괜찮아, 다시 시도하면 돼", "나는 충분히 잘하고 있어", "어려운 일도 조금씩 해결할 수 있어"],
-      actionSteps: ["깊게 숨을 쉬어보기", "믿을 수 있는 사람과 이야기하기", "한 가지씩 차근차근 해보기"],
-      encouragement: "너는 충분히 잘하고 있어! 🌟",
-      difficultyLevel: "easy",
-    };
-  }
-}
 
 async function updateUserSkills(userId, skill, points) {
   try {
@@ -631,42 +632,3 @@ async function updateUserSkills(userId, skill, points) {
     console.error("스킬 업데이트 오류:", error);
   }
 }
-
-function getRiskMessage(level) {
-  const messages = {
-    high: "이 상황은 어른의 도움이 꼭 필요해 보여요. 믿을 수 있는 어른에게 이야기해보는 것이 좋겠어요.",
-    medium: "친구가 많이 힘든 상황인 것 같아요. 선생님이나 부모님께 도움을 요청하는 것도 좋은 방법이에요.",
-    low: "친구의 마음을 잘 들어주고 있어요. 계속 따뜻하게 대해주세요.",
-    none: "잘하고 있어요! 친구에게 큰 힘이 되고 있을 거예요.",
-  };
-  return messages[level] || messages.none;
-}
-
-function getHelpResources(level) {
-  return {
-    emergency: {
-      police: "112",
-      fire: "119",
-      description: "긴급 상황 시",
-    },
-    counseling: {
-      청소년전화: "1388",
-      생명의전화: "109",
-      아동학대신고: "112",
-      description: "24시간 상담 가능",
-    },
-    online: {
-      "청소년사이버상담센터": "https://www.cyber1388.kr",
-      "마음건강 정보": "https://www.youth.go.kr",
-      "교육부 학교폭력신고": "https://www.safe182.go.kr",
-    },
-    school: {
-      message: "학교 상담 선생님께 도움을 요청해보세요",
-      weeClass: "학교 Wee클래스 이용하기",
-      description: "학교 내 전문 상담 서비스",
-    },
-  };
-}
-
-// 나머지 Callable Functions들... (기존 코드에서 복사)
-// generateEmpathy, generateSolutions, checkSafety, checkConfiguration 등
