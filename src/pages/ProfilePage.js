@@ -8,7 +8,7 @@ import {
   ChartBarIcon,
   TrophyIcon,
   HeartIcon,
-  EarIcon,
+  MegaphoneIcon,
   LightBulbIcon,
   HandRaisedIcon,
   PencilIcon
@@ -58,7 +58,7 @@ const ProfilePage = () => {
 
   const skillIcons = {
     empathy: { icon: HeartIcon, color: 'text-pink-500', name: '공감' },
-    listening: { icon: EarIcon, color: 'text-blue-500', name: '경청' },
+    listening: { icon: MegaphoneIcon, color: 'text-blue-500', name: '경청' },
     problemSolving: { icon: LightBulbIcon, color: 'text-yellow-500', name: '문제해결' },
     encouragement: { icon: HandRaisedIcon, color: 'text-green-500', name: '격려' }
   };
