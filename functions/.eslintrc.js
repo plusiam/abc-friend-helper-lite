@@ -12,6 +12,7 @@ module.exports = {
     "quotes": ["error", "double"],
     "indent": ["error", 2],
     "max-len": ["error", {"code": 120}],
+    "require-jsdoc": "off",
   },
   parserOptions: {
     ecmaVersion: 2020,
