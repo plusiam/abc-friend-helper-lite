@@ -24,12 +24,30 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "deploy": "npm run build && firebase deploy",
-    "deploy:hosting": "npm run build && firebase deploy --only hosting",
-    "deploy:functions": "firebase deploy --only functions",
+    
+    "//": "=== Vercel 프론트엔드 배포 ===",
+    "deploy:frontend": "vercel --prod",
+    "deploy:preview": "vercel",
+    "vercel-build": "npm run build",
+    
+    "//": "=== Firebase 백엔드 배포 ===",
+    "deploy:backend": "firebase deploy --only functions",
+    "deploy:firebase": "firebase deploy --only firestore:rules,storage",
+    "deploy:rules": "firebase deploy --only firestore:rules,storage.rules",
+    
+    "//": "=== 통합 배포 ===",
+    "deploy": "npm run deploy:backend && npm run deploy:frontend",
+    "deploy:all": "firebase deploy && npm run deploy:frontend",
+    
+    "//": "=== 개발 도구 ===",
     "emulator": "firebase emulators:start",
+    "functions:serve": "cd functions && npm run serve",
     "lint": "eslint src --ext .js,.jsx --fix",
-    "format": "prettier --write \"src/**/*.{js,jsx,css,md}\""
+    "format": "prettier --write \"src/**/*.{js,jsx,css,md}\"",
+    
+    "//": "=== 로컬 테스트 ===",
+    "test:functions": "cd functions && npm test",
+    "test:e2e": "npm run build && npm run emulator"
   },
   "eslintConfig": {
     "extends": [
@@ -61,6 +79,7 @@
     "prettier": "^3.1.1",
     "eslint": "^8.56.0",
     "eslint-plugin-react": "^7.33.2",
-    "eslint-plugin-react-hooks": "^4.6.0"
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "vercel": "^33.0.1"
   }
 }
