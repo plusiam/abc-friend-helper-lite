@@ -1,53 +1,22 @@
 {
-  "name": "abc-friend-helper",
-  "version": "2.1.0",
+  "name": "abc-friend-helper-lite",
+  "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@heroicons/react": "^2.0.18",
     "axios": "^1.6.5",
     "firebase": "^10.7.2",
-    "framer-motion": "^10.18.0",
     "react": "^18.2.0",
-    "react-confetti": "^6.1.0",
     "react-dom": "^18.2.0",
-    "react-hot-toast": "^2.4.1",
-    "react-router-dom": "^6.20.1",
-    "use-sound": "^4.0.1",
-    "react-chartjs-2": "^5.2.0",
-    "chart.js": "^4.4.1",
-    "date-fns": "^3.0.6",
-    "lodash": "^4.17.21",
-    "react-spring": "^9.7.3"
+    "react-router-dom": "^6.20.1"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    
-    "//": "=== Vercel 프론트엔드 배포 ===",
-    "deploy:frontend": "vercel --prod",
-    "deploy:preview": "vercel",
-    "vercel-build": "npm run build",
-    
-    "//": "=== Firebase 백엔드 배포 ===",
+    "deploy": "npm run build && firebase deploy",
     "deploy:backend": "firebase deploy --only functions",
-    "deploy:firebase": "firebase deploy --only firestore:rules,storage",
-    "deploy:rules": "firebase deploy --only firestore:rules,storage.rules",
-    
-    "//": "=== 통합 배포 ===",
-    "deploy": "npm run deploy:backend && npm run deploy:frontend",
-    "deploy:all": "firebase deploy && npm run deploy:frontend",
-    
-    "//": "=== 개발 도구 ===",
-    "emulator": "firebase emulators:start",
-    "functions:serve": "cd functions && npm run serve",
-    "lint": "eslint src --ext .js,.jsx --fix",
-    "format": "prettier --write \"src/**/*.{js,jsx,css,md}\"",
-    
-    "//": "=== 로컬 테스트 ===",
-    "test:functions": "cd functions && npm test",
-    "test:e2e": "npm run build && npm run emulator"
+    "emulator": "firebase emulators:start"
   },
   "eslintConfig": {
     "extends": [
@@ -68,18 +37,9 @@
     ]
   },
   "devDependencies": {
-    "@tailwindcss/forms": "^0.5.7",
-    "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.18",
-    "@types/lodash": "^4.14.202",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
     "react-scripts": "5.0.1",
-    "tailwindcss": "^3.4.0",
-    "prettier": "^3.1.1",
-    "eslint": "^8.56.0",
-    "eslint-plugin-react": "^7.33.2",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "vercel": "^33.0.1"
+    "tailwindcss": "^3.4.0"
   }
 }
