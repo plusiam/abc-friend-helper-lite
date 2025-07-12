@@ -87,6 +87,9 @@ const CounselingMode = () => {
 
   // 다음 단계로 이동
   const handleNext = async () => {
+    console.log('Current step:', currentStep);
+    console.log('Form data:', formData);
+    
     switch (currentStep) {
       case 1:
         if (!formData.situation.trim() || formData.emotions.length === 0) {
@@ -121,7 +124,10 @@ const CounselingMode = () => {
         break;
         
       case 3:
-        if (!formData.abc.a || !formData.abc.b || !formData.abc.c) {
+        console.log('ABC values:', formData.abc);
+        console.log('A:', formData.abc.a, 'B:', formData.abc.b, 'C:', formData.abc.c);
+        
+        if (!formData.abc.a?.trim() || !formData.abc.b?.trim() || !formData.abc.c?.trim()) {
           toast.error('ABC 모델을 모두 작성해주세요!');
           return;
         }
