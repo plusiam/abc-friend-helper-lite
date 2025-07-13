@@ -95,7 +95,7 @@ const HomePage = () => {
             또래 상담을 재미있게 배워보세요! 👥
           </p>
           <p className="text-lg text-gray-500 mb-12">
-            공감, 경청, 문제해결 능력을 게임처럼 즐결어보세요
+            공감, 경청, 문제해결 능력을 게임처럼 즐겁게 배워보세요
           </p>
           
           {userData && (
